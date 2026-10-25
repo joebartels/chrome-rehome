@@ -1,0 +1,24 @@
+{
+  "name": "chromerehome",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "build": "node --eval \"throw new Error('Build tooling is scheduled for a later foundation task')\"",
+    "check:package": "node --eval \"throw new Error('Package checks are scheduled for a later foundation task')\"",
+    "test:browser": "node --eval \"throw new Error('Browser tests are scheduled for a later foundation task')\""
+  },
+  "devDependencies": {
+    "@playwright/test": "1.64.1",
+    "@types/chrome": "0.3.6",
+    "@types/node": "24.19.2",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.5"
+  }
+}
