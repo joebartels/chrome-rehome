@@ -1,6 +1,6 @@
 # ChromeReHome foundation design
 
-Status: Approved by the user on 2026-10-25; implementation has not started.
+Status: Approved by the user on 2026-10-25; foundation implementation locally verified on 2026-10-25 (typecheck, unit/integration suite, build/package and bundled Chromium smoke). Hosted CI and release browser/performance validation remain outstanding; all ten product feature tasks remain TODO.
 Date: 2026-10-24
 
 ## Intent and scope

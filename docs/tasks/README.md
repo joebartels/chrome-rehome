@@ -1,6 +1,8 @@
 # Feature backlog
 
-Foundation status: proposed; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
+Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
+
+All ten product tasks below remain TODO. Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
 
 The foundation establishes contracts, lifecycle wiring, configuration, a mutation queue, tests and build tooling. Automatic movement and closure remain disabled until the corresponding tasks are complete.
 

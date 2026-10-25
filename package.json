@@ -9,9 +9,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "build": "node --eval \"throw new Error('Build tooling is scheduled for a later foundation task')\"",
-    "check:package": "node --eval \"throw new Error('Package checks are scheduled for a later foundation task')\"",
-    "test:browser": "node --eval \"throw new Error('Browser tests are scheduled for a later foundation task')\""
+    "build": "node scripts/build.mjs",
+    "check:package": "node scripts/check-package.mjs",
+    "test:browser": "playwright test"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "ChromeReHome",
+  "version": "0.1.0",
+  "minimum_chrome_version": "120",
+  "permissions": [
+    "tabs",
+    "tabGroups",
+    "storage",
+    "webNavigation"
+  ],
+  "background": {
+    "service_worker": "background/index.js",
+    "type": "module"
+  },
+  "options_ui": {
+    "page": "options/index.html",
+    "open_in_tab": true
+  }
+}
