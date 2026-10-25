@@ -1,5 +1,7 @@
 # Wildcard group-rule engine design
 
+Status: implemented and independently reviewed on 2026-10-25.
+
 Scope: implement approved backlog Task 001 only, as requested on 2026-10-25, through delegated implementation and independent review; pause afterward. The task description and prior foundation design fix the product behavior. Remaining limits/shape choices below are implementation defaults, not new user requirements.
 
 ## Intent and boundaries
