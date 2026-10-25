@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import valid from '../fixtures/config/valid-v1.json';
+import validV2 from '../fixtures/config/valid-v2.json';
+import invalidV2 from '../fixtures/config/invalid-v2.json';
 import invalid from '../fixtures/config/invalid.json';
 import unknownProperty from '../fixtures/config/unknown-property.json';
 import future from '../fixtures/config/future-version.json';
@@ -31,11 +33,11 @@ function deferred<T>() {
 }
 
 describe('parseConfig', () => {
-  it('defaults missing storage to disabled version 1', () => {
-    expect(parseConfig(undefined)).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: false } });
+  it('defaults missing storage to disabled version 2', () => {
+    expect(parseConfig(undefined)).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: false, groupingRules: [] } });
   });
-  it.each([true, false])('accepts version 1 with enabled=%s', (enabled) => {
-    expect(parseConfig({ schemaVersion: 1, enabled })).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled } });
+  it.each([true, false])('migrates strict version 1 with enabled=%s in memory', (enabled) => {
+    expect(parseConfig({ schemaVersion: 1, enabled })).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled, groupingRules: [] } });
   });
   it.each([null, [], true, 'config', 1, {}, { enabled: false }, { schemaVersion: 1 }, invalid,
     unknownProperty, { schemaVersion: '1', enabled: true }, { schemaVersion: 0, enabled: false },
@@ -45,24 +47,68 @@ describe('parseConfig', () => {
   it('distinguishes a future version', () => {
     expect(parseConfig(future)).toMatchObject({ kind: 'unavailable', reason: 'future-version' });
   });
+  it('copies and freezes version 2 rules while preserving entered values and order', () => {
+    const input = structuredClone(validV2);
+    const state = parseConfig(input);
+    expect(state).toEqual({ kind: 'ready', config: validV2 });
+    input.groupingRules[0]!.group = 'Changed';
+    input.groupingRules.push({ pattern: 'https://example.com/*', group: 'Added' });
+    if (state.kind !== 'ready') throw new Error('Expected valid version 2');
+    expect(state.config.groupingRules).toEqual(validV2.groupingRules);
+    expect(Object.isFrozen(state.config)).toBe(true);
+    expect(Object.isFrozen(state.config.groupingRules)).toBe(true);
+    expect(state.config.groupingRules.every(Object.isFrozen)).toBe(true);
+  });
+  it('reports the invalid rule index and validation problem', () => {
+    expect(parseConfig(invalidV2)).toMatchObject({
+      kind: 'unavailable', reason: 'invalid', message: expect.stringMatching(/rule 2.*query|rule 2.*fragment/i),
+    });
+  });
+  it.each([
+    { schemaVersion: 2, enabled: true }, { schemaVersion: 2, groupingRules: [] },
+    { schemaVersion: 2, enabled: 'true', groupingRules: [] },
+    { schemaVersion: 2, enabled: true, groupingRules: null },
+    { schemaVersion: 2, enabled: true, groupingRules: [], extra: true },
+    { schemaVersion: 1, enabled: true, groupingRules: [] },
+  ])('rejects incomplete, unknown or invalid schema fields %j', (raw) => {
+    expect(parseConfig(raw)).toMatchObject({ kind: 'unavailable', reason: 'invalid' });
+  });
   it('copies and freezes accepted configuration', () => {
     const input = { schemaVersion: 1, enabled: true };
     const state = parseConfig(input);
     input.enabled = false;
-    expect(state).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
+    expect(state).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } });
     if (state.kind === 'ready') expect(Object.isFrozen(state.config)).toBe(true);
   });
 });
 
 describe('configuration repository', () => {
-  it('round-trips valid version 1 through storage', async () => {
+  it('writes migrated version 1 as canonical version 2', async () => {
     const { storage } = memoryStorage(undefined);
     const repository = createConfigRepository(storage);
-    expect(await repository.save(valid)).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
-    expect(await repository.load()).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
+    expect(await repository.save(valid)).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } });
+    expect(await repository.load()).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } });
+    expect(storage.write).toHaveBeenCalledWith({ schemaVersion: 2, enabled: true, groupingRules: [] });
     repository.dispose();
   });
-  it.each([invalid, unknownProperty, future])('never writes while loading or saving rejected data %j', async (raw) => {
+  it.each([valid, { schemaVersion: 1, enabled: false }, validV2, invalidV2, future])('never writes on load, including migration: %j', async (raw) => {
+    const { storage } = memoryStorage(raw);
+    const before = structuredClone(raw);
+    const repository = createConfigRepository(storage);
+    await repository.load();
+    expect(storage.write).not.toHaveBeenCalled();
+    expect(await storage.read()).toEqual(before);
+    repository.dispose();
+  });
+  it('round-trips explicit version 2 saves with all rules', async () => {
+    const { storage } = memoryStorage(undefined);
+    const repository = createConfigRepository(storage);
+    expect(await repository.save(validV2)).toEqual({ kind: 'ready', config: validV2 });
+    expect(storage.write).toHaveBeenCalledWith(validV2);
+    expect(await repository.load()).toEqual({ kind: 'ready', config: validV2 });
+    repository.dispose();
+  });
+  it.each([invalid, unknownProperty, invalidV2, future])('never writes while loading or saving rejected data %j', async (raw) => {
     const { storage } = memoryStorage(raw);
     const repository = createConfigRepository(storage);
     expect(await repository.load()).toMatchObject({ kind: 'unavailable' });
@@ -92,10 +138,10 @@ describe('configuration repository', () => {
     const observed: ConfigState[] = [];
     repository.subscribe((state) => { observed.push(state); });
     const saving = repository.save(valid);
-    expect(await repository.load()).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: false } });
+    expect(await repository.load()).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: false, groupingRules: [] } });
     pendingWrite.reject(new Error('write denied'));
     expect(await saving).toMatchObject({ kind: 'unavailable', reason: 'storage' });
-    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: false } }]);
+    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 2, enabled: false, groupingRules: [] } }]);
     repository.dispose();
   });
   it('refreshes subscribers after changes and detaches on dispose', async () => {
@@ -105,7 +151,7 @@ describe('configuration repository', () => {
     const observed: ConfigState[] = [];
     const unsubscribe = repository.subscribe((state) => { observed.push(state); });
     change(valid);
-    await vi.waitFor(() => expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: true } }]));
+    await vi.waitFor(() => expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } }]));
     unsubscribe();
     await repository.load();
     expect(observed).toHaveLength(1);
@@ -125,8 +171,8 @@ describe('configuration repository', () => {
     const first = repository.load();
     await repository.load();
     older.resolve({ schemaVersion: 1, enabled: false });
-    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
-    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: true } }]);
+    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } });
+    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } }]);
     repository.dispose();
   });
   it('returns the completed settings save to an older read caller without republishing', async () => {
@@ -139,8 +185,8 @@ describe('configuration repository', () => {
     const first = repository.load();
     await repository.save(valid);
     older.resolve(undefined);
-    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
-    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: true } }]);
+    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } });
+    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 2, enabled: true, groupingRules: [] } }]);
     repository.dispose();
   });
   it('does not publish an in-flight read after disposal', async () => {

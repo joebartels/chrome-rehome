@@ -35,13 +35,15 @@ function layer(name) { return name.split('/')[1]; }
 function checkDependency(name, target) {
   const from = layer(name);
   const to = layer(target);
-  if ((from === 'config' && to !== 'config') || (from === 'background' && to === 'options') || (from === 'options' && to === 'background')) fail('boundary', `${name} imports ${target}`);
+  const groupingValidator = target === 'src/rules/grouping' || target === 'src/rules/grouping.ts';
+  if ((from === 'config' && to !== 'config' && !groupingValidator) || (from === 'rules' && to !== 'rules') ||
+    (from === 'background' && to === 'options') || (from === 'options' && to === 'background')) fail('boundary', `${name} imports ${target}`);
 }
 export function checkSources(root) {
   for (const name of files(resolve(root, 'src')).filter((name) => /\.ts$/.test(name))) {
     const fullName = `src/${name}`;
     const items = tokens(read(root, fullName));
-    if (layer(fullName) === 'config' && items.some((token) => ['chrome', 'browser'].includes(token.text))) fail('boundary', `${fullName} references browser globals`);
+    if (['config', 'rules'].includes(layer(fullName)) && items.some((token) => ['chrome', 'browser'].includes(token.text))) fail('boundary', `${fullName} references browser globals`);
     for (const specifier of dependencies(items)) {
       const target = specifier.startsWith('.') ? relative(root, resolve(root, dirname(fullName), specifier)) : specifier;
       if (layer(fullName) === 'config' && !specifier.startsWith('.')) fail('boundary', `${fullName} imports ${specifier}`);

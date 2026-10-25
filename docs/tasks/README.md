@@ -2,11 +2,11 @@
 
 Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
 
-All ten product tasks below remain TODO. Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
+Task 001 matching/configuration is implemented and locally verified; Tasks 002–010 remain TODO. Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
 
 The foundation establishes contracts, lifecycle wiring, configuration, a mutation queue, tests and build tooling. Automatic movement and closure remain disabled until the corresponding tasks are complete.
 
-- [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — depends on foundation
+- [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — complete; depends on foundation
 - [002: Duplicate URL equivalence](todo/002-duplicate-url-equivalence.md) — depends on foundation
 - [003: Group destination resolution](todo/003-group-destination-resolution.md) — depends on 001
 - [004: Navigation eligibility and winner selection](todo/004-navigation-eligibility-and-winner-selection.md) — depends on 002

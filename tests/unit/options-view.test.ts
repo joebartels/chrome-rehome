@@ -11,7 +11,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('options status', () => {
   it.each([true, false])('explains the foundation status with enabled=%s without implying features work', (enabled) => {
-    const view = createOptionsView(parseConfig({ schemaVersion: 1, enabled }));
+    const view = createOptionsView(parseConfig({ schemaVersion: 2, enabled, groupingRules: [] }));
     expect(view.heading).toContain('Foundation installed');
     expect(view.message).toContain(enabled ? 'enabled' : 'disabled');
     expect(view.message).toContain('Automatic tab organization is not implemented yet.');
@@ -51,7 +51,7 @@ describe('options status', () => {
       teardown = listener;
     } });
     vi.stubGlobal('chrome', { storage: {
-      local: { get: async () => ({ chromeReHomeConfig: { schemaVersion: 1, enabled } }), set: write },
+      local: { get: async () => ({ chromeReHomeConfig: { schemaVersion: 2, enabled, groupingRules: [] } }), set: write },
       onChanged: {
         addListener: (listener: (changes: Record<string, unknown>, area: string) => void) => { listeners.add(listener); },
         removeListener: (listener: (changes: Record<string, unknown>, area: string) => void) => { listeners.delete(listener); },
@@ -76,14 +76,14 @@ describe('options status', () => {
     });
     const target = elements();
     const mounted = mountOptions(target, repository);
-    await repository.save({ schemaVersion: 1, enabled: true });
+    await repository.save({ schemaVersion: 2, enabled: true, groupingRules: [] });
     expect(target.message.textContent).toContain('enabled');
-    resolve({ schemaVersion: 1, enabled: false });
+    resolve({ schemaVersion: 2, enabled: false, groupingRules: [] });
     await mounted.ready;
     expect(target.message.textContent).toContain('enabled');
     mounted.dispose();
     mounted.dispose();
-    await repository.save({ schemaVersion: 1, enabled: false });
+    await repository.save({ schemaVersion: 2, enabled: false, groupingRules: [] });
     expect(target.message.textContent).toContain('enabled');
     expect(detach).toHaveBeenCalledTimes(1);
   });

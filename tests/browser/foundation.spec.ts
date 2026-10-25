@@ -2,6 +2,10 @@ import { test as base, chromium, expect, type BrowserContext, type Page, type Wo
 import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { build } from 'esbuild';
+import validV2 from '../fixtures/config/valid-v2.json' with { type: 'json' };
+import { groupingCases } from '../fixtures/grouping-cases';
+import type { compileGroupingRules } from '../../src/rules/grouping';
 
 type Foundation = { context: BrowserContext; options: Page; worker: Worker; extensionId: string };
 const test = base.extend<{ foundation: Foundation }>({
@@ -40,8 +44,14 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   const { context, options, worker, extensionId } = foundation;
   const errors: string[] = [];
   options.on('pageerror', (error) => errors.push(error.message));
-  await options.evaluate(() => chrome.storage.local.set({ chromeReHomeConfig: { schemaVersion: 1, enabled: true } }));
+  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), validV2);
+  const storedBytes = await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig));
+  expect(JSON.parse(storedBytes)).toEqual(validV2);
   await expect(options.getByRole('status')).toContainText('enabled');
+  await options.reload();
+  await expect(options.getByRole('status')).toContainText('enabled');
+  await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'info');
+  expect(await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig))).toBe(storedBytes);
   const first = await context.newPage();
   const second = await context.newPage();
   await first.goto('http://foundation.test/first');
@@ -89,13 +99,51 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
     await testInfo.attach('worker-restart', { body: JSON.stringify({ versionId: original.versionId, originalTarget, restartedTarget: restarted.targetId, status: restarted.runningStatus }), contentType: 'application/json' });
   } finally { await cdp.detach(); }
   expect(errors).toEqual([]);
+  expect(await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig))).toBe(storedBytes);
   await testInfo.attach('chromium-version', { body: context.browser()?.version() ?? 'unavailable', contentType: 'text/plain' });
   // The consumer is intentionally a no-op. Revival and registered listeners are observable;
   // deterministic navigation delivery and delayed initialization belong to integration tests.
 });
 
+test('runs the actual grouping compiler with native Chromium URLPattern', async ({ foundation }) => {
+  const fixture = await mkdtemp(join(tmpdir(), 'chromerehome-grouping-'));
+  const page = await foundation.context.newPage();
+  try {
+    const bundle = join(fixture, 'grouping.js');
+    await build({ entryPoints: [resolve('src/rules/grouping.ts')], outfile: bundle, bundle: true, format: 'iife', globalName: 'Grouping', target: 'chrome120' });
+    await page.goto('https://foundation.test/grouping');
+    // Test-only script in a routed fixture page, never in the extension package.
+    await page.addScriptTag({ path: bundle });
+    const actual = await page.evaluate((cases) => {
+      const { compileGroupingRules: compile } = (window as unknown as { Grouping: { compileGroupingRules: typeof compileGroupingRules } }).Grouping;
+      return cases.map(([pattern, url]) => {
+        const compiled = compile([{ pattern, group: 'BarTab' }]);
+        if (compiled.kind !== 'ready') throw new Error(compiled.message);
+        return compiled.match(url)?.group ?? null;
+      });
+    }, groupingCases);
+    for (const [index, [pattern, url, matches]] of groupingCases.entries()) {
+      expect(actual[index], `${pattern} against ${url}`).toBe(matches ? 'BarTab' : null);
+    }
+  } finally {
+    await page.close();
+    await rm(fixture, { recursive: true, force: true });
+  }
+});
+
+test('migrates version 1 in memory without writing storage', async ({ foundation }) => {
+  const { options } = foundation;
+  const legacy = { schemaVersion: 1, enabled: true };
+  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), legacy);
+  await options.reload();
+  await expect(options.getByRole('status')).toContainText('enabled');
+  await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'info');
+  expect(await options.evaluate(async () => (await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig)).toEqual(legacy);
+});
+
 for (const [name, value, message] of [
   ['invalid', { schemaVersion: 1, enabled: 'yes' }, 'Stored configuration is invalid'],
+  ['invalid rules', { schemaVersion: 2, enabled: true, groupingRules: [{ pattern: 'https://example.com/?x', group: 'Bad' }] }, 'Stored configuration is invalid'],
   ['future', { schemaVersion: 99, enabled: true, futureRule: 'preserve me' }, 'requires a newer extension version'],
 ] as const) {
   test(`shows ${name} configuration errors without overwriting stored data`, async ({ foundation }) => {

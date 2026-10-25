@@ -1,0 +1,1 @@
+{"schemaVersion":2,"enabled":true,"groupingRules":[{"pattern":"https://example.com/*","group":"Good"},{"pattern":"https://example.com/?query","group":"Bad"}]}
