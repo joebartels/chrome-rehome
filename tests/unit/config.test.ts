@@ -25,8 +25,9 @@ function memoryStorage(initial: unknown) {
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
-  const promise = new Promise<T>((done) => { resolve = done; });
-  return { promise, resolve };
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
+  return { promise, resolve, reject };
 }
 
 describe('parseConfig', () => {
@@ -81,6 +82,20 @@ describe('configuration repository', () => {
     storage.write = async () => { throw new Error('write denied'); };
     const repository = createConfigRepository(storage);
     expect(await repository.save(valid)).toMatchObject({ kind: 'unavailable', reason: 'storage' });
+    repository.dispose();
+  });
+  it('reports a delayed write failure even after a newer load succeeds', async () => {
+    const { storage } = memoryStorage(undefined);
+    const pendingWrite = deferred<void>();
+    storage.write = () => pendingWrite.promise;
+    const repository = createConfigRepository(storage);
+    const observed: ConfigState[] = [];
+    repository.subscribe((state) => { observed.push(state); });
+    const saving = repository.save(valid);
+    expect(await repository.load()).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: false } });
+    pendingWrite.reject(new Error('write denied'));
+    expect(await saving).toMatchObject({ kind: 'unavailable', reason: 'storage' });
+    expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: false } }]);
     repository.dispose();
   });
   it('refreshes subscribers after changes and detaches on dispose', async () => {

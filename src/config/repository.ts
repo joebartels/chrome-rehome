@@ -12,13 +12,12 @@ export function createConfigRepository(storage: ConfigStorage) {
   let disposed = false;
   let latestResult: { operation: number; state: ConfigState } | undefined;
 
-  function publish(state: ConfigState, operation: number): ConfigState {
-    if (latestResult && operation < latestResult.operation) return latestResult.state;
+  function publish(state: ConfigState, operation: number): void {
+    if (latestResult && operation < latestResult.operation) return;
     latestResult = { operation, state };
     if (!disposed && operation === generation) {
       for (const listener of listeners) listener(state);
     }
-    return state;
   }
 
   function storageFailure(): ConfigState {
@@ -33,7 +32,8 @@ export function createConfigRepository(storage: ConfigStorage) {
     } catch {
       state = storageFailure();
     }
-    return publish(state, operation);
+    publish(state, operation);
+    return latestResult?.state ?? state;
   }
 
   async function save(raw: unknown): Promise<ConfigState> {
@@ -43,9 +43,12 @@ export function createConfigRepository(storage: ConfigStorage) {
     try {
       await storage.write(state.config);
     } catch {
-      return publish(storageFailure(), operation);
+      const failure = storageFailure();
+      publish(failure, operation);
+      return failure;
     }
-    return publish(state, operation);
+    publish(state, operation);
+    return state;
   }
 
   // Attach before the first asynchronous read so startup changes cannot be missed.
