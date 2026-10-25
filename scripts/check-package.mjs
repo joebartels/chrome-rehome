@@ -46,7 +46,7 @@ export function checkSources(root) {
     if (['config', 'rules'].includes(layer(fullName)) && items.some((token) => ['chrome', 'browser'].includes(token.text))) fail('boundary', `${fullName} references browser globals`);
     for (const specifier of dependencies(items)) {
       const target = specifier.startsWith('.') ? relative(root, resolve(root, dirname(fullName), specifier)) : specifier;
-      if (layer(fullName) === 'config' && !specifier.startsWith('.')) fail('boundary', `${fullName} imports ${specifier}`);
+      if (['config', 'rules'].includes(layer(fullName)) && !specifier.startsWith('.')) fail('boundary', `${fullName} imports ${specifier}`);
       checkDependency(fullName, target);
     }
   }

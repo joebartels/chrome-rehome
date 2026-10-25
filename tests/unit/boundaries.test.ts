@@ -16,6 +16,8 @@ describe('source boundaries', () => {
     ['src/rules/grouping.ts', 'export * from "../background/coordinator";'],
     ['src/rules/grouping.ts', 'import("../options/view");'],
     ['src/rules/grouping.ts', 'import "external-matcher";'],
+    ['src/rules/grouping.ts', 'import "@vendor/rules";'],
+    ['src/rules/grouping.ts', 'import type { Rule } from "@vendor/rules";'],
     ['src/options/view.ts', 'import "../background/coordinator";'],
     ['src/options/view.ts', 'import type { Config } from "../background/coordinator";'],
     ['src/background/coordinator.ts', 'import "../options/view";'],
