@@ -100,7 +100,7 @@ describe('configuration repository', () => {
     change(undefined);
     expect(observed).toHaveLength(1);
   });
-  it('does not publish an older delayed read after a newer read completes', async () => {
+  it('returns the newer completed read to an older caller without republishing', async () => {
     const { storage } = memoryStorage(undefined);
     const older = deferred<unknown>();
     storage.read = vi.fn().mockReturnValueOnce(older.promise).mockResolvedValueOnce(valid);
@@ -110,11 +110,11 @@ describe('configuration repository', () => {
     const first = repository.load();
     await repository.load();
     older.resolve({ schemaVersion: 1, enabled: false });
-    await first;
+    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
     expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: true } }]);
     repository.dispose();
   });
-  it('does not publish an older read after a settings save completes', async () => {
+  it('returns the completed settings save to an older read caller without republishing', async () => {
     const { storage } = memoryStorage(undefined);
     const older = deferred<unknown>();
     storage.read = () => older.promise;
@@ -124,7 +124,7 @@ describe('configuration repository', () => {
     const first = repository.load();
     await repository.save(valid);
     older.resolve(undefined);
-    await first;
+    expect(await first).toEqual({ kind: 'ready', config: { schemaVersion: 1, enabled: true } });
     expect(observed).toEqual([{ kind: 'ready', config: { schemaVersion: 1, enabled: true } }]);
     repository.dispose();
   });

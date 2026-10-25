@@ -10,8 +10,11 @@ export function createConfigRepository(storage: ConfigStorage) {
   const listeners = new Set<(state: ConfigState) => void>();
   let generation = 0;
   let disposed = false;
+  let latestResult: { operation: number; state: ConfigState } | undefined;
 
   function publish(state: ConfigState, operation: number): ConfigState {
+    if (latestResult && operation < latestResult.operation) return latestResult.state;
+    latestResult = { operation, state };
     if (!disposed && operation === generation) {
       for (const listener of listeners) listener(state);
     }
