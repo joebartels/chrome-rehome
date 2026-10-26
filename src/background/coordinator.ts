@@ -54,6 +54,7 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
       });
     },
     invalidate(tabId: number): void { tracker.invalidate(tabId); },
+    replace(addedTabId: number, removedTabId: number): void { tracker.replace(addedTabId, removedTabId); },
     forget(tabId: number): void { tracker.forget(tabId); },
     dispose(): void {
       if (disposed) return;

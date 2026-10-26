@@ -23,6 +23,7 @@ function fakeApi(read: () => Promise<Record<string, unknown>>) {
       onCommitted: event<(details: chrome.webNavigation.WebNavigationTransitionCallbackDetails) => unknown>(),
       onHistoryStateUpdated: event<(details: chrome.webNavigation.WebNavigationTransitionCallbackDetails) => unknown>(),
       onReferenceFragmentUpdated: event<(details: chrome.webNavigation.WebNavigationTransitionCallbackDetails) => unknown>(),
+      onTabReplaced: event<(details: chrome.webNavigation.WebNavigationReplacementCallbackDetails) => unknown>(),
       onBeforeNavigate: event<(details: chrome.webNavigation.WebNavigationBaseCallbackDetails) => unknown>(),
     },
     tabs: {
@@ -82,11 +83,12 @@ describe('worker event registration', () => {
   ] as const)('normalizes %s and preserves the navigation identity', async (name, kind) => {
     const fake = setup();
     registerEvents(fake.api, fake.coordinator, fake.reportFailure);
+    if (name !== 'onCommitted') await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ url: 'https://example.com/before', timeStamp: 99 })));
     await Promise.all(fake.fake.webNavigation[name].emit(navigation()));
-    expect(fake.consumed).toEqual([expect.objectContaining({
+    expect(fake.consumed.at(-1)).toEqual(expect.objectContaining({
       kind, tabId: 7, documentId: 'document-one', browserTimeStamp: 100,
       url: 'https://example.com/?private=value#fragment',
-    })]);
+    }));
   });
 
   it('ignores subframe before-navigate and revokes main-frame work without emitting a navigation', async () => {
@@ -156,7 +158,7 @@ describe('worker event registration', () => {
     registerEvents(fake.api, fake.coordinator, fake.reportFailure);
     await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation()));
     expect(fake.reportFailure).toHaveBeenCalledExactlyOnceWith();
-    await Promise.all(fake.fake.webNavigation.onHistoryStateUpdated.emit(navigation({ timeStamp: 101 })));
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ timeStamp: 101 })));
     expect(fake.consumed).toHaveLength(1);
   });
 
@@ -169,5 +171,53 @@ describe('worker event registration', () => {
     }
     expect(fake.storage.local.get).toHaveBeenCalledTimes(1);
     expect(fake.storage.local.set).not.toHaveBeenCalled();
+  });
+});
+
+
+describe('registry eligibility metadata and replacements', () => {
+  it.each(['onCommitted', 'onHistoryStateUpdated', 'onReferenceFragmentUpdated'] as const)
+  ('preserves restrictive qualifiers and lifecycle through %s', async (name) => {
+    const fake = setup();
+    registerEvents(fake.api, fake.coordinator, fake.reportFailure);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ url: 'https://example.com/seed' })));
+    const seed = fake.consumed.length;
+    await Promise.all(fake.fake.webNavigation[name].emit(navigation({ timeStamp: 101, transitionType: 'reload', transitionQualifiers: ['from_address_bar'] })));
+    expect(fake.consumed).toHaveLength(seed);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ timeStamp: 102 })));
+    await Promise.all(fake.fake.webNavigation[name].emit(navigation({ timeStamp: 103, documentLifecycle: 'prerender', url: 'https://example.com/next' })));
+    expect(fake.consumed).toHaveLength(seed + 1);
+  });
+
+  it('preserves trusted client/server redirects and document identity', async () => {
+    const fake = setup();
+    registerEvents(fake.api, fake.coordinator, fake.reportFailure);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ transitionQualifiers: ['client_redirect'] })));
+    expect(fake.consumed).toEqual([]);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ timeStamp: 101 })));
+    fake.fake.webNavigation.onBeforeNavigate.emit(navigation());
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ timeStamp: 102, documentId: 'redirected',
+      url: 'https://example.com/final', transitionQualifiers: ['client_redirect', 'server_redirect'] })));
+    expect(fake.consumed.at(-1)).toMatchObject({ documentId: 'redirected', url: 'https://example.com/final' });
+  });
+
+  it.each(['tabs-first', 'navigation-first'] as const)('both replacement APIs revoke pending observations without provenance transfer: %s', async (order) => {
+    let resolve!: (value: Record<string, unknown>) => void;
+    const fake = setup(() => new Promise((done) => { resolve = done; }));
+    registerEvents(fake.api, fake.coordinator, fake.reportFailure);
+    const pending = [
+      ...fake.fake.webNavigation.onCommitted.emit(navigation()),
+      ...fake.fake.webNavigation.onCommitted.emit(navigation({ tabId: 8 })),
+    ];
+    const tabs = () => fake.fake.tabs.onReplaced.emit(8, 7);
+    const nav = () => fake.fake.webNavigation.onTabReplaced.emit({ tabId: 8, replacedTabId: 7, timeStamp: 101 });
+    if (order === 'tabs-first') { tabs(); nav(); } else { nav(); tabs(); }
+    resolve({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } });
+    await Promise.all(pending);
+    expect(fake.consumed).toEqual([]);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ tabId: 8, timeStamp: 102, transitionQualifiers: ['client_redirect'] })));
+    expect(fake.consumed).toEqual([]);
+    await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ tabId: 8, timeStamp: 103 })));
+    expect(fake.consumed).toHaveLength(1);
   });
 });

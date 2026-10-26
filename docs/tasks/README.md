@@ -2,14 +2,14 @@
 
 Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
 
-Tasks 001 matching/configuration, 002 duplicate identity/schema 3 and 003 group destination resolution are implemented and locally verified; Tasks 004–010 remain TODO. Task 003 completed on 2026-10-26; see [completion evidence](../reviews/2026-10-26-group-destination-resolution-completion.md). Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
+Tasks 001 matching/configuration, 002 duplicate identity/schema 3 and 003 group destination resolution are implemented and locally verified; Task 004 is implemented pending controller review/completion; Tasks 005–010 remain TODO. Task 003 completed on 2026-10-26; see [completion evidence](../reviews/2026-10-26-group-destination-resolution-completion.md). Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
 
 The foundation establishes contracts, lifecycle wiring, configuration, a mutation queue, tests and build tooling. Automatic movement and closure remain disabled until the corresponding tasks are complete.
 
 - [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — complete; depends on foundation
 - [002: Duplicate URL equivalence](todo/002-duplicate-url-equivalence.md) — complete; depends on foundation
 - [003: Group destination resolution](todo/003-group-destination-resolution.md) — complete; depends on 001
-- [004: Navigation eligibility and winner selection](todo/004-navigation-eligibility-and-winner-selection.md) — depends on 002
+- [004: Navigation eligibility and winner selection](todo/004-navigation-eligibility-and-winner-selection.md) — implementation pending controller review; depends on 002
 - [005: Replacement planning and placement](todo/005-replacement-planning-and-placement.md) — depends on 001, 002, 003, 004
 - [006: Recoverable closure and stale-work protection](todo/006-recoverable-closure-and-stale-work-protection.md) — depends on 005
 - [007: Rule editor and matching preview](todo/007-rule-editor-and-matching-preview.md) — depends on 001, 002, 003
@@ -18,3 +18,6 @@ The foundation establishes contracts, lifecycle wiring, configuration, a mutatio
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009
 
 Tasks 001 and 002 are independent pure rule engines. Task 007 can progress alongside replacement/recovery after its dependencies. Automatic duplicate closure must not ship before task 006; default activation waits for protections in 008 and regression checks in 009. Task numbers are stable identifiers; completion can be tracked in each file.
+
+
+Chrome trial milestones: **load unpacked now for installation/configuration status**; automatic organization remains inactive. **005** is the earliest planned controlled placement trial when its executor is connected. **006** adds recoverable closure, **007** convenient settings and matching preview, **008** pause/protection controls and **009** the full browser regression gate before default activation. **010** remains release/performance validation. Task 004 is pure selection plus conservative observation, with no closure authority; its documented metadata limitations and disposable-browser capability gaps must inform later activation decisions.

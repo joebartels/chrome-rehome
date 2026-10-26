@@ -3,7 +3,7 @@ import type { NavigationInput, NavigationKind } from './navigation';
 
 type EventsApi = {
   webNavigation: Pick<typeof chrome.webNavigation,
-    'onCommitted' | 'onHistoryStateUpdated' | 'onReferenceFragmentUpdated' | 'onBeforeNavigate'>;
+    'onCommitted' | 'onHistoryStateUpdated' | 'onReferenceFragmentUpdated' | 'onBeforeNavigate' | 'onTabReplaced'>;
   tabs: Pick<typeof chrome.tabs, 'onRemoved' | 'onReplaced'>;
   runtime: Pick<typeof chrome.runtime, 'onStartup' | 'onInstalled'>;
 };
@@ -27,6 +27,10 @@ export function registerEvents(
       url: details.url,
       timeStamp: details.timeStamp,
       ...(details.documentId === undefined ? {} : { documentId: details.documentId }),
+      ...(details.transitionType === undefined ? {} : { transitionType: details.transitionType }),
+      ...(details.transitionQualifiers === undefined ? {} : { transitionQualifiers: details.transitionQualifiers }),
+      ...(details.documentLifecycle === undefined ? {} : { documentLifecycle: details.documentLifecycle }),
+      ...(details.frameType === undefined ? {} : { frameType: details.frameType }),
       kind,
     }));
   }
@@ -39,9 +43,9 @@ export function registerEvents(
   });
   api.tabs.onRemoved.addListener((tabId) => { coordinator.forget(tabId); });
   api.tabs.onReplaced.addListener((addedTabId, removedTabId) => {
-    coordinator.forget(removedTabId);
-    coordinator.invalidate(addedTabId);
+    coordinator.replace(addedTabId, removedTabId);
   });
+  api.webNavigation.onTabReplaced.addListener((details) => { coordinator.replace(details.tabId, details.replacedTabId); });
   api.runtime.onStartup.addListener(() => safely(() => coordinator.initialize()));
   api.runtime.onInstalled.addListener(() => safely(() => coordinator.initialize()));
 }

@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCoordinator } from '../../src/background/coordinator';
 import { createConfigRepository } from '../../src/config/repository';
+import { selectCandidates } from '../../src/planning/candidates';
+import { compileDuplicateRules } from '../../src/rules/duplicates';
 import { createNavigationTracker, type NavigationInput } from '../../src/background/navigation';
 import { createOperationQueue } from '../../src/background/operation-queue';
 import { createDiagnostics } from '../../src/diagnostics/diagnostics';
@@ -12,7 +14,7 @@ function deferred<T>() {
 }
 const enabled = { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] };
 function input(tabId = 7, timeStamp = 100): NavigationInput {
-  return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed' };
+  return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed', documentId: 'doc', documentLifecycle: 'active', transitionType: 'link', transitionQualifiers: [] };
 }
 function setup(read = vi.fn<() => Promise<unknown>>(async () => enabled)) {
   const detach = vi.fn();
@@ -21,8 +23,9 @@ function setup(read = vi.fn<() => Promise<unknown>>(async () => enabled)) {
   const diagnostics = createDiagnostics({ enabled: true });
   const consumed: number[] = [];
   const consume = vi.fn(async (event: { tabId: number }) => { consumed.push(event.tabId); });
-  const coordinator = createCoordinator({ config, tracker: createNavigationTracker(), queue, diagnostics, consume });
-  return { coordinator, config, queue, read, consumed, consume, diagnostics, detach };
+  const tracker = createNavigationTracker();
+  const coordinator = createCoordinator({ config, tracker, queue, diagnostics, consume });
+  return { coordinator, tracker, config, queue, read, consumed, consume, diagnostics, detach };
 }
 
 describe('navigation coordinator', () => {
@@ -124,5 +127,43 @@ describe('navigation coordinator', () => {
     await fake.coordinator.handle(input(8));
     expect(fake.consumed).toEqual([8]);
     expect(JSON.stringify(fake.diagnostics.snapshot())).not.toContain('private');
+  });
+});
+
+
+describe('eligibility coordination races', () => {
+  it.each(['reload', 'replace'] as const)('%s revokes an eligible observation synchronously during config loading', async (action) => {
+    const initial = deferred<unknown>();
+    const fake = setup(vi.fn(() => initial.promise));
+    const pending = fake.coordinator.handle(input());
+    const oldView = fake.tracker.view();
+    if (action === 'reload') await fake.coordinator.handle({ ...input(7, 101), transitionType: 'reload', transitionQualifiers: ['from_address_bar'] });
+    else fake.coordinator.replace(8, 7);
+    expect(fake.tracker.isViewCurrent(oldView)).toBe(false);
+    expect(fake.tracker.view().navigations).toEqual([]);
+    initial.resolve(enabled);
+    await pending;
+    expect(fake.consumed).toEqual([]);
+  });
+
+  it('a later equivalent navigation supersedes queued work through the complete view, without browser time ordering', async () => {
+    const initial = deferred<unknown>();
+    const config = createConfigRepository({ read: () => initial.promise, write: async () => {}, subscribe: () => () => {} });
+    const tracker = createNavigationTracker();
+    const selected: number[] = [];
+    const compiler = compileDuplicateRules([]);
+    if (compiler.kind !== 'ready') throw Error('invalid rules');
+    const coordinator = createCoordinator({ config, tracker, queue: createOperationQueue(), diagnostics: createDiagnostics(),
+      consume: async (event) => {
+        const captured = tracker.view();
+        const tabs = [7, 8].map((id) => ({ id, windowId: 1, index: id - 7, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' }));
+        const result = selectCandidates(event, tabs, captured, compiler);
+        if (result.kind === 'selected') selected.push(result.winner.id);
+      } });
+    const old = coordinator.handle(input(7, 900));
+    const latest = coordinator.handle(input(8, 100));
+    initial.resolve(enabled);
+    await Promise.all([old, latest]);
+    expect(selected).toEqual([8]);
   });
 });
