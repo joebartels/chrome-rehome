@@ -42,6 +42,12 @@ describe('package policy', () => {
     f.write('.build/metafile.json', graph);
     const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('boundary');
   });
+  it.each(['src/browser/group-placement.ts', 'src/config/schema.ts', '@vendor/planning'])('rejects forbidden planning graph dependency %s', target => {
+    const f = fixture();
+    const graph = { inputs: { 'src/planning/group-destination.ts': { imports: [{ path: target }] } }, outputs: { 'dist/background/index.js': { entryPoint: 'src/background/index.ts', inputs: { 'src/background/index.ts': {}, 'src/planning/group-destination.ts': {} }, imports: [] }, 'dist/options/index.js': { entryPoint: 'src/options/index.ts', inputs: { 'src/options/index.ts': {} }, imports: [] } } };
+    f.write('.build/metafile.json', graph);
+    const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('boundary');
+  });
   it('rejects a graph with no recorded entry dependencies', () => {
     const f = fixture(); f.write('.build/metafile.json', { inputs: {}, outputs: { 'dist/background/index.js': { entryPoint: 'src/background/index.ts', inputs: {}, imports: [] }, 'dist/options/index.js': { entryPoint: 'src/options/index.ts', inputs: {}, imports: [] } } });
     const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('boundary');

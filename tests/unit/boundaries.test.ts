@@ -9,6 +9,15 @@ describe('source boundaries', () => {
     ['src/config/schema.ts', 'globalThis.chrome.storage.local.get("config");'],
     ['src/config/schema.ts', 'import "../browser/config-storage";'],
     ['src/config/schema.ts', 'import "../rules/other";'],
+    ['src/planning/group-destination.ts', 'chrome.tabs.query({});'],
+    ['src/planning/group-destination.ts', 'globalThis.browser.tabs.query({});'],
+    ['src/planning/group-destination.ts', 'import "../browser/group-placement";'],
+    ['src/planning/group-destination.ts', 'import type { Port } from "../execution/group-placement";'],
+    ['src/planning/group-destination.ts', 'import "@vendor/planning";'],
+    ['src/planning/group-destination.ts', 'import type { Rule } from "@vendor/planning";'],
+    ['src/execution/group-placement.ts', 'import "../browser/group-placement";'],
+    ['src/execution/group-placement.ts', 'import type { Queue } from "../background/operation-queue";'],
+    ['src/execution/group-placement.ts', 'chrome.tabs.group({});'],
     ['src/rules/grouping.ts', 'chrome.tabs.query({});'],
     ['src/rules/grouping.ts', 'globalThis.browser.tabs.query({});'],
     ['src/rules/grouping.ts', 'import "../browser/config-storage";'],
@@ -66,6 +75,12 @@ describe('source boundaries', () => {
     const result = check(f.root);
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('boundary');
+  });
+  it('accepts pure planning/rules and structural execution dependencies', () => {
+    const f = fixture();
+    f.write('src/planning/group-destination.ts', 'import "../rules/grouping"; import type { Tab } from "./types";');
+    f.write('src/execution/group-placement.ts', 'import type { Plan } from "../planning/group-destination"; import "./helper";');
+    expect(check(f.root).status).toBe(0);
   });
   it('checks the actual source tree', () => {
     // Build artifacts are checked separately; this invokes the same policy in source-only mode.

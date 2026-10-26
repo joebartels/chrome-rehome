@@ -34,19 +34,21 @@ function dependencies(items) {
 function layer(name) { return name.split('/')[1]; }
 function checkDependency(name, target) {
   const from = layer(name);
-  const to = layer(target);
+  const to = target.startsWith('src/') ? layer(target) : undefined;
   const sharedValidator = ['src/rules/grouping', 'src/rules/grouping.ts', 'src/rules/duplicates', 'src/rules/duplicates.ts'].includes(target);
   if ((from === 'config' && to !== 'config' && !sharedValidator) || (from === 'rules' && to !== 'rules') ||
+    (from === 'planning' && !['planning', 'rules'].includes(to)) ||
+    (from === 'execution' && !['execution', 'planning'].includes(to)) ||
     (from === 'background' && to === 'options') || (from === 'options' && to === 'background')) fail('boundary', `${name} imports ${target}`);
 }
 export function checkSources(root) {
   for (const name of files(resolve(root, 'src')).filter((name) => /\.ts$/.test(name))) {
     const fullName = `src/${name}`;
     const items = tokens(read(root, fullName));
-    if (['config', 'rules'].includes(layer(fullName)) && items.some((token) => ['chrome', 'browser'].includes(token.text))) fail('boundary', `${fullName} references browser globals`);
+    if (['config', 'rules', 'planning', 'execution'].includes(layer(fullName)) && items.some((token) => ['chrome', 'browser'].includes(token.text))) fail('boundary', `${fullName} references browser globals`);
     for (const specifier of dependencies(items)) {
       const target = specifier.startsWith('.') ? relative(root, resolve(root, dirname(fullName), specifier)) : specifier;
-      if (['config', 'rules'].includes(layer(fullName)) && !specifier.startsWith('.')) fail('boundary', `${fullName} imports ${specifier}`);
+      if (['config', 'rules', 'planning', 'execution'].includes(layer(fullName)) && !specifier.startsWith('.')) fail('boundary', `${fullName} imports ${specifier}`);
       checkDependency(fullName, target);
     }
   }

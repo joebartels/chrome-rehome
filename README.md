@@ -1,6 +1,6 @@
 # ChromeReHome
 
-Chrome Manifest V3 foundation for future duplicate-tab replacement and grouping rules. This version renders installation/configuration status, observes navigation, and provides pure wildcard-rule and duplicate-identity compilers. Automatic movement, grouping and closure are not implemented. [Task 001](docs/tasks/todo/001-wildcard-group-rules.md) supplies grouping matching; [Task 002](docs/tasks/todo/002-duplicate-url-equivalence.md) supplies duplicate identity and configuration. Tasks 003–010 remain TODO.
+Chrome Manifest V3 foundation for future duplicate-tab replacement and grouping rules. This version renders installation/configuration status, observes navigation, and provides pure wildcard-rule and duplicate-identity compilers. An opt-in group placement primitive is available to future callers; automatic movement, grouping and closure remain disabled. [Task 001](docs/tasks/todo/001-wildcard-group-rules.md) supplies grouping matching; [Task 002](docs/tasks/todo/002-duplicate-url-equivalence.md) supplies duplicate identity and configuration. [Task 003](docs/tasks/todo/003-group-destination-resolution.md) supplies explicit group destination/placement APIs; Tasks 004–010 remain TODO.
 
 ## Develop and load
 
@@ -41,3 +41,22 @@ Query normalization uses native `URLSearchParams` decoded names and stable sorti
 The exact initial permissions are `tabs`, `tabGroups`, `storage`, `webNavigation`. They support tab/group snapshots, configuration, and navigation/lifecycle observation. There are no host permissions, content scripts, injected code, debugger permission, remote executable code, telemetry, network calls or keep-alive timers.
 
 See [architecture](docs/architecture.md), [measurement instructions](docs/performance-baseline.md), and the [approved design](docs/superpowers/specs/2026-10-24-foundation-design.md). CI is configured to install clean dependencies on Node 24, typecheck, run unit/integration tests, build, validate the package, install Chromium and run smoke tests. Local verification does not establish a hosted CI result.
+
+## Explicit group placement API
+
+`planGroupDestination(request, snapshot)` in `src/planning/group-destination.ts` returns an existing/new destination or a skip. It compares titles exactly in the source tab's own explicit window/context, prefers its current group, then lowest observed member index and numeric group ID. Inputs are readonly structural records with no URLs or Chrome types.
+
+Future callers can construct the service explicitly:
+
+```ts
+const port = createGroupPlacementAdapter(chrome);
+const groupQueue = createOperationQueue();
+const groups = createGroupPlacementService({ port, queue: groupQueue });
+const result = await groups.place({ tabId: 1, windowId: 10, incognito: false, title: 'BarTab' });
+```
+
+Use live concrete IDs and actual browsing context. Retain one service and dedicated shared grouping queue per worker. This queue must differ from an outer coordinator queue whose active job awaits `place`; nesting on the same queue deadlocks. There is no production caller yet.
+
+The service validates requests, reads/plans twice, groups an actual tab, and verifies membership/title. Pinned tabs skip. A new group gets only the configured title; existing attributes are never explicitly updated, although Chrome may expand/reposition a group. Results expose `placed`, `skipped`, or `failed` with original cause, stage and known effect (`not-started`, `uncertain`, `grouped`, `titled`). Failed mutations are not retried or rolled back, and title failure can leave an unnamed group. Serialization includes final verification but cannot coordinate other service instances, external actors or restarts. Success is an observation; Task 005 must provide identity/generation and closure preconditions.
+
+A separate temporary browser extension fixture tests real grouping without adding a production endpoint or changing the five-file package. Tests record Chromium version and incognito capability; the fixture's default lack of incognito access leaves the disposable-profile manual check in Task 003 unautomated. Chrome 120/current stable release checks also remain.
