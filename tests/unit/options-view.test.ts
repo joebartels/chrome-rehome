@@ -10,11 +10,11 @@ function elements() {
 afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('options status', () => {
-  it.each([true, false])('explains the foundation status with enabled=%s without implying features work', (enabled) => {
+  it.each([true, false])('explains placement with enabled=%s and no closure/editor', (enabled) => {
     const view = createOptionsView(parseConfig({ schemaVersion: 3, enabled, groupingRules: [], duplicateRules: [] }));
-    expect(view.heading).toContain('Foundation installed');
+    expect(view.heading).toContain('ChromeReHome installed');
     expect(view.message).toContain(enabled ? 'enabled' : 'disabled');
-    expect(view.message).toContain('Automatic tab organization is not implemented yet.');
+    expect(view.message).toBe(`Automatic placement is ${enabled ? 'enabled' : 'disabled'}. Tabs are never closed. Rule editing is not available yet.`);
     expect(view.severity).toBe('info');
   });
 
@@ -27,7 +27,7 @@ describe('options status', () => {
     const target = elements();
     const mounted = mountOptions(target, repository);
     await mounted.ready;
-    expect(target.heading.textContent).toContain('Foundation installed');
+    expect(target.heading.textContent).toContain('ChromeReHome installed');
     expect(target.message.textContent).toMatch(message);
     expect(target.message.dataset.severity).toBe('error');
     expect(write).not.toHaveBeenCalled();

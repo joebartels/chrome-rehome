@@ -92,7 +92,7 @@ describe('navigation coordinator', () => {
     gate.resolve();
     await Promise.all([blocked, old, latest]);
     expect(fake.consume).toHaveBeenCalledTimes(1);
-    expect(fake.consume).toHaveBeenCalledWith(expect.objectContaining({ browserTimeStamp: 101 }));
+    expect(fake.consume).toHaveBeenCalledWith(expect.objectContaining({ browserTimeStamp: 101 }), expect.objectContaining({isCurrent:expect.any(Function)}));
   });
 
   it.each(['invalidate', 'forget'] as const)('%s prevents pending startup navigation from running', async (method) => {
@@ -166,4 +166,13 @@ describe('eligibility coordination races', () => {
     await Promise.all([old, latest]);
     expect(selected).toEqual([8]);
   });
+});
+
+
+it('captured consume context is revoked while a storage read remains unresolved',async()=>{
+  let notify=()=>{};let release!:(value:unknown)=>void;let reload=false;
+  const repository=createConfigRepository({read:()=>reload?new Promise(done=>{release=done;}):Promise.resolve(enabled),write:async()=>{},subscribe:listener=>{notify=listener;return ()=>{};}});
+  const gate=deferred<void>();const started=deferred<void>();let captured:{isCurrent():boolean}|undefined;
+  const coordinator=createCoordinator({config:repository,tracker:createNavigationTracker(),queue:createOperationQueue(),diagnostics:createDiagnostics(),consume:async(_event,context)=>{captured=context;started.resolve();await gate.promise;}});
+  const pending=coordinator.handle(input());await started.promise;expect(captured!.isCurrent()).toBe(true);reload=true;notify();expect(captured!.isCurrent()).toBe(false);release(enabled);await Promise.resolve();await Promise.resolve();expect(captured!.isCurrent()).toBe(false);gate.resolve();await pending;
 });

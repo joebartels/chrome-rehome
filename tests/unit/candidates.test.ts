@@ -145,3 +145,13 @@ describe('pure candidate selection', () => {
     expect(tracker.isViewCurrent(captured)).toBe(false);
   });
 });
+
+// The opt-in has the same gate as existing callers; no skip reason can enable placement.
+it('grouping-only opt-in cannot revive stale or superseded input', async()=>{
+  const {navigation,view,identity,tab}=await import('../fixtures/placement');
+  if(identity.kind!=='ready')throw Error('rules');
+  const newer={...navigation,tabId:2,observedSequence:2,documentId:'two'};
+  const current={...view,navigations:[navigation,newer]};
+  expect(selectCandidates(navigation,[tab(1,0),tab(2,1)],current,identity,{allowNoDuplicates:true})).toEqual({kind:'skip',reason:'superseded'});
+  expect(selectCandidates(navigation,[tab(1,0)],{...view,blockedTabIds:[1]},identity,{allowNoDuplicates:true})).toEqual({kind:'skip',reason:'unavailable-trigger'});
+});

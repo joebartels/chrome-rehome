@@ -27,7 +27,7 @@ const test = base.extend<{ foundation: Foundation }>({
       const extensionId = new URL(worker.url()).host;
       const options = await context.newPage();
       await options.goto(`chrome-extension://${extensionId}/options/index.html`);
-      await expect(options.getByRole('heading', { name: 'Foundation installed' })).toBeVisible();
+      await expect(options.getByRole('heading', { name: 'ChromeReHome installed' })).toBeVisible();
       await expect(options.getByRole('status')).toContainText('disabled');
       await context.route(/^https?:\/\/foundation\.test\//, (route) => route.fulfill({
         contentType: 'text/html', body: '<title>Foundation fixture</title><h1>Navigation fixture</h1>',
@@ -60,7 +60,7 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   const second = await context.newPage();
   await first.goto('http://foundation.test/first');
   await second.goto('https://foundation.test/second');
-  // Establish real group membership in the test harness; production code never groups tabs.
+  // Establish real group membership in the test harness; production grouping is enabled only for matching configured URLs.
   await options.evaluate(async () => {
     const tabs = await chrome.tabs.query({});
     const ids = tabs.filter((tab) => tab.url?.includes('foundation.test')).map((tab) => tab.id!);
@@ -105,7 +105,7 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   expect(errors).toEqual([]);
   expect(await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig))).toBe(storedBytes);
   await testInfo.attach('chromium-version', { body: context.browser()?.version() ?? 'unavailable', contentType: 'text/plain' });
-  // The consumer is intentionally a no-op. Revival and registered listeners are observable;
+  // These URLs have no configured destination. Revival and registered listeners are observable;
   // deterministic navigation delivery and delayed initialization belong to integration tests.
 });
 

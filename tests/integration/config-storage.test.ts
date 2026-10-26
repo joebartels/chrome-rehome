@@ -100,3 +100,13 @@ describe('Chrome config storage adapter', () => {
     repository.dispose();
   });
 });
+
+
+it('getCurrent revokes publication synchronously for pending loads, saves and disposal',async()=>{
+  let notify=()=>{};let release!:(value:unknown)=>void;
+  let next:()=>Promise<unknown>=async()=>({schemaVersion:3,enabled:true,groupingRules:[],duplicateRules:[]});
+  const repository=createConfigRepository({read:()=>next(),write:async()=>{},subscribe:listener=>{notify=listener;return ()=>{};}});
+  expect(repository.getCurrent()).toBeUndefined();await repository.load();const first=repository.getCurrent()!;expect(first.state.kind).toBe('ready');
+  next=()=>new Promise(done=>{release=done;});notify();expect(repository.getCurrent()).toBeUndefined();release({schemaVersion:3,enabled:true,groupingRules:[],duplicateRules:[]});await Promise.resolve();await Promise.resolve();expect(repository.getCurrent()!.revision).toBeGreaterThan(first.revision);
+  const saving=repository.save({schemaVersion:3,enabled:false,groupingRules:[],duplicateRules:[]});expect(repository.getCurrent()).toBeUndefined();await saving;expect(repository.getCurrent()?.state).toMatchObject({kind:'ready',config:{enabled:false}});repository.dispose();expect(repository.getCurrent()).toBeUndefined();
+});

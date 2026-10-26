@@ -1,5 +1,7 @@
 import { parseConfig, type Config, type ConfigState } from './schema';
 
+export type ConfigSnapshot = Readonly<{ revision: number; state: ConfigState }>;
+
 export interface ConfigStorage {
   read(): Promise<unknown>;
   write(value: Config): Promise<void>;
@@ -57,6 +59,10 @@ export function createConfigRepository(storage: ConfigStorage) {
   return {
     load,
     save,
+    getCurrent(): ConfigSnapshot | undefined {
+      return !disposed && latestResult?.operation === generation
+        ? Object.freeze({revision:generation,state:latestResult.state}) : undefined;
+    },
     subscribe(listener: (state: ConfigState) => void): () => void {
       if (!disposed) listeners.add(listener);
       return () => { listeners.delete(listener); };

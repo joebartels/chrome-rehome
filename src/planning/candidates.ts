@@ -17,6 +17,11 @@ export type CandidateSelection =
   | Readonly<{ kind: 'selected'; epoch: symbol; revision: number; winner: CandidateTab;
       navigation: CandidateNavigation; duplicates: readonly CandidateTab[]; anchor: CandidateTab }>;
 
+export type SingleCandidate = Readonly<{
+  kind: 'single'; epoch: symbol; revision: number; winner: CandidateTab; navigation: CandidateNavigation; duplicates: readonly [];
+}>;
+export type PlacementSelection = Extract<CandidateSelection, { kind: 'selected' }> | SingleCandidate;
+
 function validId(value: number): boolean { return Number.isSafeInteger(value) && value >= 0; }
 function positive(value: number): boolean { return Number.isSafeInteger(value) && value > 0; }
 function nativeHref(value: unknown): string | undefined {
@@ -47,12 +52,12 @@ function copyTab(tab: CandidateTab): CandidateTab {
     ...('pendingUrl' in tab ? { pendingUrl: tab.pendingUrl } : {}) });
 }
 
+export function selectCandidates(trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity): CandidateSelection;
+export function selectCandidates(trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity, options: { allowNoDuplicates: true }): CandidateSelection | SingleCandidate;
 export function selectCandidates(
-  trigger: CandidateNavigation,
-  tabs: readonly CandidateTab[],
-  view: NavigationView,
-  identity: DuplicateIdentity,
-): CandidateSelection {
+  trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity,
+  options?: { allowNoDuplicates: true },
+): CandidateSelection | SingleCandidate {
   const skip = (reason: Extract<CandidateSelection, { kind: 'skip' }>['reason']): CandidateSelection => Object.freeze({ kind: 'skip', reason });
   if (!validNavigation(trigger) || !view || typeof view.epoch !== 'symbol' || !validId(view.revision)
     || !Array.isArray(tabs) || !Array.isArray(view.navigations) || !Array.isArray(view.blockedTabIds)
@@ -97,7 +102,11 @@ export function selectCandidates(
   const duplicates = matching.filter((tab) => tab.id !== trigger.tabId).sort((a, b) =>
     Number(b.windowId === triggerTab.windowId) - Number(a.windowId === triggerTab.windowId)
     || a.windowId - b.windowId || a.index - b.index || a.id - b.id).map(copyTab);
-  if (!duplicates.length) return skip('no-duplicates');
+  if (!duplicates.length) {
+    if (!options?.allowNoDuplicates) return skip('no-duplicates');
+    return Object.freeze({ kind: 'single', epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
+      navigation: Object.freeze({ ...live }), duplicates: Object.freeze([]) as readonly [] });
+  }
   return Object.freeze({ kind: 'selected', epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
     navigation: Object.freeze({ epoch: live.epoch, tabId: live.tabId, generation: live.generation, url: live.url,
       documentId: live.documentId, observedSequence: live.observedSequence }),

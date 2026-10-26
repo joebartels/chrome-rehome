@@ -19,6 +19,7 @@ export type GroupSnapshot = Readonly<{
   title?: string;
   color: chrome.tabGroups.TabGroup['color'];
   collapsed: boolean;
+  shared?: boolean;
 }>;
 
 export function createSnapshotReader(api: Pick<typeof chrome, 'tabs' | 'tabGroups'>) {
@@ -58,6 +59,7 @@ export function createSnapshotReader(api: Pick<typeof chrome, 'tabs' | 'tabGroup
           ...(group.title === undefined ? {} : { title: group.title }),
           color: group.color,
           collapsed: group.collapsed,
+          ...(group.shared === undefined ? {} : { shared: group.shared }),
         })),
       };
     },

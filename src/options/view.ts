@@ -6,11 +6,10 @@ type TextElement = Pick<HTMLElement, 'textContent'>;
 type Elements = { heading: TextElement; message: TextElement & Pick<HTMLElement, 'dataset'> };
 
 export function createOptionsView(state: ConfigState): OptionsView {
-  const foundation = 'Automatic tab organization is not implemented yet.';
   if (state.kind === 'ready') {
     return {
-      heading: 'Foundation installed',
-      message: `Foundation configuration is ${state.config.enabled ? 'enabled' : 'disabled'}. ${foundation}`,
+      heading: 'ChromeReHome installed',
+      message: `Automatic placement is ${state.config.enabled ? 'enabled' : 'disabled'}. Tabs are never closed. Rule editing is not available yet.`,
       severity: 'info',
     };
   }
@@ -19,7 +18,7 @@ export function createOptionsView(state: ConfigState): OptionsView {
     'future-version': 'Stored configuration requires a newer extension version. Update the extension to read it.',
     storage: 'Configuration storage is unavailable. Reload this page to try again.',
   };
-  return { heading: 'Foundation installed', message: `${actions[state.reason]} ${foundation}`, severity: 'error' };
+  return { heading: 'ChromeReHome installed', message: `${actions[state.reason]} Automatic placement is unavailable. Tabs are never closed.`, severity: 'error' };
 }
 
 export function mountOptions(elements: Elements, config: ReturnType<typeof createConfigRepository>) {

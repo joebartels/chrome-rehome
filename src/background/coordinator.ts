@@ -1,15 +1,17 @@
 import type { createConfigRepository } from '../config/repository';
-import type { ConfigState } from '../config/schema';
+import type { Config, ConfigState } from '../config/schema';
 import type { createDiagnostics } from '../diagnostics/diagnostics';
 import type { createNavigationTracker, Navigation, NavigationInput } from './navigation';
 import type { createOperationQueue } from './operation-queue';
+
+export type ConsumeContext = Readonly<{ config: Config; revision: number; isCurrent(): boolean }>;
 
 type Dependencies = {
   config: ReturnType<typeof createConfigRepository>;
   tracker: ReturnType<typeof createNavigationTracker>;
   queue: ReturnType<typeof createOperationQueue>;
   diagnostics: ReturnType<typeof createDiagnostics>;
-  consume: (event: Navigation) => Promise<void>;
+  consume: (event: Navigation, context: ConsumeContext) => Promise<void>;
 };
 
 export function createCoordinator({ config, tracker, queue, diagnostics, consume }: Dependencies) {
@@ -50,7 +52,15 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
       await queue.run(async () => {
         if (disposed || observedRevision !== revision || !tracker.isCurrent(event)
           || state?.kind !== 'ready' || !state.config.enabled) return;
-        await consume(event);
+        const captured = config.getCurrent();
+        if (captured?.state !== state) return;
+        const capturedRevision = revision;
+        const context: ConsumeContext = Object.freeze({config:state.config,revision:captured.revision,isCurrent() {
+          const current = config.getCurrent();
+          return !disposed && revision === capturedRevision && current?.revision === captured.revision
+            && current.state === state && state?.kind === 'ready' && state.config.enabled && tracker.isCurrent(event);
+        }});
+        await consume(event, context);
       });
     },
     invalidate(tabId: number): void { tracker.invalidate(tabId); },

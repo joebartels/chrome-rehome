@@ -27,7 +27,7 @@ function group(overrides: Partial<chrome.tabGroups.TabGroup> = {}): chrome.tabGr
   return { id: 5, windowId: 10, title: 'Work', color: 'blue', collapsed: false, shared: false, ...overrides };
 }
 
-function browser(tabs = [tab()], groups = [group()]) {
+function browser(tabs = [tab()], groups: (Omit<chrome.tabGroups.TabGroup, 'shared'> & {shared?:boolean})[] = [group()]) {
   const tabsQuery = vi.fn(async (_query: chrome.tabs.QueryInfo) => tabs);
   const groupsQuery = vi.fn(async (_query: chrome.tabGroups.QueryInfo) => groups);
   // Any extra API access fails, including mutation methods and per-item reads.
@@ -56,7 +56,7 @@ describe('live snapshot reader', () => {
         audible: true, incognito: false,
         url: 'https://example.com/path?query=one#section', pendingUrl: 'https://example.com/next',
       }],
-      groups: [{ id: 5, windowId: 10, title: 'Work', color: 'blue', collapsed: false }],
+      groups: [{ id: 5, windowId: 10, title: 'Work', color: 'blue', collapsed: false, shared: false }],
     });
   });
 
@@ -75,7 +75,7 @@ describe('live snapshot reader', () => {
 
   it('omits unavailable URLs and optional titles while defaulting unavailable audible state', async () => {
     const { url: _, pendingUrl: __, audible: ___, ...withoutUrls } = tab();
-    const { title: ____, ...withoutTitle } = group();
+    const { title: ____, shared: _____, ...withoutTitle } = group();
     const fake = browser([withoutUrls], [withoutTitle]);
     const result = await createSnapshotReader(fake.api).read({ kind: 'window', windowId: 10 });
     expect(result.tabs[0]).toEqual({
@@ -154,4 +154,10 @@ describe('live snapshot reader', () => {
     expect(second.tabs[0]?.index).toBe(3);
     expect(second.groups[0]?.collapsed).toBe(true);
   });
+});
+
+it.each([true,false,undefined])('preserves optional native shared evidence %s',async(shared)=>{
+  const {shared:_,...plain}=group();const fake=browser([tab()],[shared===undefined?plain:{...plain,shared}]);
+  const snapshot=await createSnapshotReader(fake.api).read({kind:'all-normal-windows'});
+  expect(snapshot.groups[0]?.shared).toBe(shared);expect(Object.hasOwn(snapshot.groups[0]!,'shared')).toBe(shared!==undefined);
 });

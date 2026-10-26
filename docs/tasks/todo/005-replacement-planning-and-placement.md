@@ -22,3 +22,14 @@ planning/replacement.ts; execution/placement.ts; focused browser mutation ports.
 ## Implementation discipline
 
 Start with the behavior tests named above; run them failing before implementation. Keep Chrome calls out of pure matching/planning. Record any product decision in the task before enabling behavior. Complete typecheck, covering tests, and package build; add browser checks where Chrome owns the behavior.
+
+
+## Adopted placement trial decisions
+
+Implementation is available for controller review; completion status/checkboxes remain controller-owned. The trial defaults disabled, retains all original tabs and moves only the eligible winner. Configured exact-title grouping in the incoming window takes precedence; otherwise inherit the selected duplicate's group/ungrouped membership and immediately-following position. A lone winner can group through the opt-in selector; ordinary four-argument selection keeps its no-duplicates skip.
+
+One frozen plan, one coordinator queue, a published configuration revision lease, strict event/view/native snapshot and active outermost-document checks guard each await. Passive duplicates need no document; only winner and used inherited anchor are read. A configured override remains independent of unavailable overridden duplicate frames. Source/destination shared groups skip; missing shared metadata remains compatible. No retries, rollback, tab creation/closure, editor, permissions, dependencies or schema changes.
+
+Native tab grouping/movement can change active/focus/collapse state; production never requests these changes. The winner is removed once when calculating after-anchor insertion. Only its expected empty source group/window may disappear; nonwinner relative order and original IDs must survive. Rejection effects are explicit and original causes retained. Real production-dist local HTTP browser trials cover grouping-only/disable, same-window directions, grouped and ungrouped cross-window inheritance, grouped interior positions, collapsed configured override, winner history and all original IDs. Controlled drag/title failures are simulated tests; actual mouse drag, enabled incognito and Chrome120/current-stable matrix remain manual gaps.004's scripted ordinary-link ambiguity and conservative unrelated-navigation cancellation remain accepted trial limits.
+
+See [README trial instructions](../../../README.md#controlled-placement-trial) for the exact unpacked path, schema3 backup/enable/pause/restore commands and visible smoke steps. Task006 is not started.
