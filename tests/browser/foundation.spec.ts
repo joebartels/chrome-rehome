@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import validV3 from '../fixtures/config/valid-v3.json' with { type: 'json' };
 import invalidV3 from '../fixtures/config/invalid-v3.json' with { type: 'json' };
-import { duplicateCases, invalidCandidates } from '../fixtures/duplicate-cases';
+import { duplicateCases, duplicateCompilationCases, invalidCandidates } from '../fixtures/duplicate-cases';
 import type { compileDuplicateRules } from '../../src/rules/duplicates';
 import validV2 from '../fixtures/config/valid-v2.json' with { type: 'json' };
 import { groupingCases } from '../fixtures/grouping-cases';
@@ -143,7 +143,7 @@ test('runs the actual duplicate compiler with native Chromium URL and URLSearchP
     await build({ entryPoints: [resolve('src/rules/duplicates.ts')], outfile: bundle, bundle: true, format: 'iife', globalName: 'Duplicates', target: 'chrome120' });
     await page.goto('https://foundation.test/duplicates');
     await page.addScriptTag({ path: bundle });
-    const actual = await page.evaluate(({ cases, invalid }) => {
+    const actual = await page.evaluate(({ cases, invalid, compilationCases }) => {
       const { compileDuplicateRules: compile } = (window as unknown as { Duplicates: { compileDuplicateRules: typeof compileDuplicateRules } }).Duplicates;
       const results = cases.map(([, rules, left, right]) => {
         const engine = compile(rules);
@@ -156,15 +156,33 @@ test('runs the actual duplicate compiler with native Chromium URL and URLSearchP
       });
       const engine = compile([]);
       if (engine.kind !== 'ready') throw new Error(engine.message);
-      return {results, invalid:invalid.map(url => {
+      const compilations = compilationCases.map(([,rules]) => {
+        const compiled = compile(rules);
+        return compiled.kind === 'ready'
+          ? {kind:compiled.kind, rules:compiled.rules}
+          : {kind:compiled.kind, ruleIndex:compiled.ruleIndex, message:compiled.message,
+              exposesIdentity: Object.hasOwn(compiled, 'identify') || Object.hasOwn(compiled, 'equivalent')};
+      });
+      return {results, compilations, invalid:invalid.map(url => {
         const candidate = {url, incognito:false};
         return engine.identify(candidate) === undefined && !engine.equivalent(candidate,candidate);
       })};
-    }, {cases:duplicateCases, invalid:invalidCandidates});
+    }, {cases:duplicateCases, invalid:invalidCandidates, compilationCases:duplicateCompilationCases});
     for (const [index, [name,,,, equivalent]] of duplicateCases.entries()) {
       expect(actual.results[index], name).toEqual({valid:true, equivalent, contextSeparated:true});
     }
     expect(actual.invalid).toEqual(invalidCandidates.map(() => true));
+    for (const [index, [name, rules, kind, ruleIndex]] of duplicateCompilationCases.entries()) {
+      const result = actual.compilations[index]!;
+      expect(result.kind, name).toBe(kind);
+      if (result.kind === 'ready') {
+        expect(result.rules, name).toEqual(rules);
+      } else {
+        expect(result.ruleIndex, name).toBe(ruleIndex);
+        expect(result.message!.length, name).toBeGreaterThan(0);
+        expect(result.exposesIdentity, name).toBe(false);
+      }
+    }
   } finally {
     await page.close();
     await rm(fixture, { recursive:true, force:true });

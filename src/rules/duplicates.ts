@@ -75,7 +75,10 @@ export function compileDuplicateRules(raw: unknown): Compilation {
       return invalid('Origin must be an exact HTTP(S) origin of 1–2048 characters, with only an optional final slash.');
     }
     const url = parseCandidate(origin);
-    if (!url || url.hostname.includes('*')) return invalid('Origin must be a valid exact HTTP(S) origin without wildcards.');
+    // Node serializes hostname stars literally; Chromium can retain their %2A spelling.
+    if (!url || url.hostname.includes('*') || url.hostname.toLowerCase().includes('%2a')) {
+      return invalid('Origin must be a valid exact HTTP(S) origin without wildcards.');
+    }
     if (byOrigin.has(url.origin)) return invalid('Duplicate canonical origin.');
     if (!Array.isArray(ignoreQueryParameters) || ignoreQueryParameters.length > 100 ||
       ![...ignoreQueryParameters].every((name: unknown) => validText(name, 256)) ||

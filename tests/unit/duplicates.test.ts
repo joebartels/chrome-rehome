@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { compileDuplicateRules, type DuplicateCandidate } from '../../src/rules/duplicates';
-import { duplicateCases, invalidCandidates, policy } from '../fixtures/duplicate-cases';
+import { duplicateCases, duplicateCompilationCases, invalidCandidates, policy } from '../fixtures/duplicate-cases';
 
 function compile(raw: unknown = []) {
   const result = compileDuplicateRules(raw);
@@ -56,6 +56,18 @@ describe('duplicate identity', () => {
 });
 
 describe('duplicate rule compilation', () => {
+  it.each(duplicateCompilationCases)('shares native compilation behavior: %s', (_name, rules, kind, ruleIndex) => {
+    const result = compileDuplicateRules(rules);
+    expect(result.kind).toBe(kind);
+    if (result.kind === 'ready') {
+      expect(result.rules).toEqual(rules);
+    } else {
+      expect(result.ruleIndex).toBe(ruleIndex);
+      expect(result.message.length).toBeGreaterThan(0);
+      expect(result).not.toHaveProperty('identify');
+      expect(result).not.toHaveProperty('equivalent');
+    }
+  });
   it.each([null, {}, 'rules', Array.from({length: 101}, () => policy)])('rejects invalid rule collections', (raw) => {
     expect(compileDuplicateRules(raw)).toMatchObject({kind:'invalid', message: expect.any(String)});
   });

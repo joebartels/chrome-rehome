@@ -57,3 +57,23 @@ export const invalidCandidates = [
   'https://example.test/a\\b', 'https://user:password@example.test/a',
   'https://user@example.test/a', 'file:///a', 'chrome://settings', 'javascript:void(0)',
 ];
+
+// Compilation expectations also run in Chromium: native hostname serialization
+// can differ even when candidate-equivalence cases pass in both runtimes.
+type CompilationCase = readonly [name: string, rules: readonly DuplicateRule[], kind: 'ready' | 'invalid', ruleIndex?: number];
+export const duplicateCompilationCases: readonly CompilationCase[] = [
+  ['empty rule list', [], 'ready'],
+  ['ordinary origin', [policy], 'ready'],
+  ['canonical alias entered alone', [{...policy, origin:'HTTPS://EXAMPLE.test:443/'}], 'ready'],
+  ['Unicode origin entered alone', [{...policy, origin:'https://bücher.test'}], 'ready'],
+  ['punycode origin entered alone', [{...policy, origin:'https://xn--bcher-kva.test'}], 'ready'],
+  ['distinct scheme and nondefault ports', [policy, {...policy, origin:'http://example.test:80'}, {...policy, origin:'https://example.test:8443'}], 'ready'],
+  ['raw wildcard', [{...policy, origin:'https://*.example.test'}], 'invalid', 0],
+  ['encoded uppercase wildcard', [{...policy, origin:'https://%2A.example.test'}], 'invalid', 0],
+  ['encoded lowercase wildcard', [{...policy, origin:'https://%2a.example.test'}], 'invalid', 0],
+  ['encoded embedded wildcard at second index', [policy, {...policy, origin:'https://exam%2Aple.test'}], 'invalid', 1],
+  ['canonical case and default-port collision', [policy, {...policy, origin:'HTTPS://EXAMPLE.test:443/'}], 'invalid', 1],
+  ['HTTP default-port collision', [{...policy, origin:'http://example.test'}, {...policy, origin:'http://example.test:80/'}], 'invalid', 1],
+  ['IDN canonical collision', [{...policy, origin:'https://bücher.test'}, {...policy, origin:'https://xn--bcher-kva.test/'}], 'invalid', 1],
+  ['indexed invalid path', [policy, {...policy, origin:'https://other.test/path'}], 'invalid', 1],
+];
