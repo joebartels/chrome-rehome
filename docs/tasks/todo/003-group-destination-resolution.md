@@ -1,6 +1,6 @@
 # 003: Group destination resolution
 
-Status: Implemented; controller review pending
+Status: Complete — locally verified 2026-10-26; paused before Task 004
 
 Depends on: 001
 
@@ -27,7 +27,7 @@ Planner tests pin case/literal titles, tie-breaking, frozen inputs, invalid requ
 
 `tests/browser/group-placement.spec.ts` builds the actual service/adapter into a temporary extension fixture, leaving the five-file distribution and production entry wiring intact. It verifies real create/title/reuse, current preference, leftmost duplicates, literal/case titles, nonfocused own-window isolation, last-member removal/stale rejection, pinned tabs and real grouping followed by injected title rejection. The capability check records whether this isolated extension can access incognito; unavailable access is not claimed as real incognito coverage.
 
-Manual incognito validation remains: in a disposable Chrome profile, load an equivalent test fixture, explicitly allow it in incognito, create normal and incognito windows with the same title, invoke the service using each source's actual window/context, and verify it never adopts the other context's group. Do not change the user's normal browser settings. Also validate the declared Chrome 120 floor and current stable before release. Exact commands, Chromium version, results and limitations are recorded in the implementation report.
+Manual incognito validation remains: in a disposable Chrome profile, load an equivalent test fixture, explicitly allow it in incognito, create normal and incognito windows with the same title, invoke the service using each source's actual window/context, and verify it never adopts the other context's group. Do not change the user's normal browser settings. Also validate the declared Chrome 120 floor and current stable before release. Independent controller verification: 560 unit/integration tests, 17 isolated Chromium tests, typecheck, build and package validation passed. Tested Chromium 156.0.8078.4. Task and whole-feature independent reviews found no actionable issue. Exact commands, results and limits are recorded in [the completion report](../../reviews/2026-10-26-group-destination-resolution-completion.md).
 
 ## Queue ownership
 

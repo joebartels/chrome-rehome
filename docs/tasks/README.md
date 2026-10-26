@@ -2,13 +2,13 @@
 
 Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
 
-Tasks 001 matching/configuration and 002 duplicate identity/schema 3 are implemented and locally verified; Tasks 003–010 remain TODO. Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
+Tasks 001 matching/configuration, 002 duplicate identity/schema 3 and 003 group destination resolution are implemented and locally verified; Tasks 004–010 remain TODO. Task 003 completed on 2026-10-26; see [completion evidence](../reviews/2026-10-26-group-destination-resolution-completion.md). Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
 
 The foundation establishes contracts, lifecycle wiring, configuration, a mutation queue, tests and build tooling. Automatic movement and closure remain disabled until the corresponding tasks are complete.
 
 - [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — complete; depends on foundation
 - [002: Duplicate URL equivalence](todo/002-duplicate-url-equivalence.md) — complete; depends on foundation
-- [003: Group destination resolution](todo/003-group-destination-resolution.md) — depends on 001
+- [003: Group destination resolution](todo/003-group-destination-resolution.md) — complete; depends on 001
 - [004: Navigation eligibility and winner selection](todo/004-navigation-eligibility-and-winner-selection.md) — depends on 002
 - [005: Replacement planning and placement](todo/005-replacement-planning-and-placement.md) — depends on 001, 002, 003, 004
 - [006: Recoverable closure and stale-work protection](todo/006-recoverable-closure-and-stale-work-protection.md) — depends on 005
