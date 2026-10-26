@@ -1,5 +1,7 @@
 # Duplicate URL equivalence design — Task002
 
+Status: implemented and independently reviewed on 2026-10-25.
+
 Scope: execute the existing Task002 requested by the user on 2026-10-25 using delegated implementation and independent review, then pause before Task003. Prior task/foundation requirements fix intent. The conservative defaults and API choices below settle routine implementation decisions; they do not add automatic duplicate replacement.
 
 ## Intent and selected approach
