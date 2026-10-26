@@ -45,6 +45,28 @@ describe('source boundaries', () => {
     expect(result.status).toBe(1);
     expect(result.stderr).toContain('src/rules/grouping.ts imports src/browser/config-storage');
   });
+  it.each(['../rules/duplicates', '../rules/duplicates.ts'])('accepts only the exact shared duplicates validator %s', specifier => {
+    const f = fixture();
+    f.write('src/config/schema.ts', 'import { compileDuplicateRules } from "'+specifier+'";');
+    f.write('src/rules/duplicates.ts', 'export function compileDuplicateRules() { return new URL("https://example.test"); }');
+    expect(check(f.root).status).toBe(0);
+  });
+  it.each([
+    ['src/config/schema.ts', 'import "../rules/duplicates-extra";'],
+    ['src/rules/duplicates.ts', 'import "../browser/config-storage";'],
+    ['src/rules/duplicates.ts', 'import type { Config } from "../config/schema";'],
+    ['src/rules/duplicates.ts', 'import "@vendor/parser";'],
+    ['src/rules/duplicates.ts', 'import type { Rule } from "@vendor/parser";'],
+    ['src/rules/duplicates.ts', 'chrome.tabs.query({});'],
+    ['src/rules/duplicates.ts', 'globalThis.browser.tabs.query({});'],
+  ])('rejects duplicate validator boundary violation in %s: %s', (name, source) => {
+    const f = fixture();
+    f.write('src/config/schema.ts', 'import "../rules/duplicates";');
+    f.write(name, source);
+    const result = check(f.root);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain('boundary');
+  });
   it('checks the actual source tree', () => {
     // Build artifacts are checked separately; this invokes the same policy in source-only mode.
     const result = checkSource(); expect(result.status).toBe(0);

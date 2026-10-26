@@ -35,8 +35,8 @@ function layer(name) { return name.split('/')[1]; }
 function checkDependency(name, target) {
   const from = layer(name);
   const to = layer(target);
-  const groupingValidator = target === 'src/rules/grouping' || target === 'src/rules/grouping.ts';
-  if ((from === 'config' && to !== 'config' && !groupingValidator) || (from === 'rules' && to !== 'rules') ||
+  const sharedValidator = ['src/rules/grouping', 'src/rules/grouping.ts', 'src/rules/duplicates', 'src/rules/duplicates.ts'].includes(target);
+  if ((from === 'config' && to !== 'config' && !sharedValidator) || (from === 'rules' && to !== 'rules') ||
     (from === 'background' && to === 'options') || (from === 'options' && to === 'background')) fail('boundary', `${name} imports ${target}`);
 }
 export function checkSources(root) {

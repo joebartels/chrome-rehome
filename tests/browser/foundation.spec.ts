@@ -3,6 +3,10 @@ import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
+import validV3 from '../fixtures/config/valid-v3.json' with { type: 'json' };
+import invalidV3 from '../fixtures/config/invalid-v3.json' with { type: 'json' };
+import { duplicateCases, invalidCandidates } from '../fixtures/duplicate-cases';
+import type { compileDuplicateRules } from '../../src/rules/duplicates';
 import validV2 from '../fixtures/config/valid-v2.json' with { type: 'json' };
 import { groupingCases } from '../fixtures/grouping-cases';
 import type { compileGroupingRules } from '../../src/rules/grouping';
@@ -44,9 +48,9 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   const { context, options, worker, extensionId } = foundation;
   const errors: string[] = [];
   options.on('pageerror', (error) => errors.push(error.message));
-  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), validV2);
+  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), validV3);
   const storedBytes = await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig));
-  expect(JSON.parse(storedBytes)).toEqual(validV2);
+  expect(JSON.parse(storedBytes)).toEqual(validV3);
   await expect(options.getByRole('status')).toContainText('enabled');
   await options.reload();
   await expect(options.getByRole('status')).toContainText('enabled');
@@ -131,28 +135,72 @@ test('runs the actual grouping compiler with native Chromium URLPattern', async 
   }
 });
 
-test('migrates version 1 in memory without writing storage', async ({ foundation }) => {
-  const { options } = foundation;
-  const legacy = { schemaVersion: 1, enabled: true };
-  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), legacy);
-  await options.reload();
-  await expect(options.getByRole('status')).toContainText('enabled');
-  await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'info');
-  expect(await options.evaluate(async () => (await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig)).toEqual(legacy);
+test('runs the actual duplicate compiler with native Chromium URL and URLSearchParams', async ({ foundation }) => {
+  const fixture = await mkdtemp(join(tmpdir(), 'chromerehome-duplicates-'));
+  const page = await foundation.context.newPage();
+  try {
+    const bundle = join(fixture, 'duplicates.js');
+    await build({ entryPoints: [resolve('src/rules/duplicates.ts')], outfile: bundle, bundle: true, format: 'iife', globalName: 'Duplicates', target: 'chrome120' });
+    await page.goto('https://foundation.test/duplicates');
+    await page.addScriptTag({ path: bundle });
+    const actual = await page.evaluate(({ cases, invalid }) => {
+      const { compileDuplicateRules: compile } = (window as unknown as { Duplicates: { compileDuplicateRules: typeof compileDuplicateRules } }).Duplicates;
+      const results = cases.map(([, rules, left, right]) => {
+        const engine = compile(rules);
+        if (engine.kind !== 'ready') throw new Error(engine.message);
+        const a = {url:left, incognito:false};
+        const b = {url:right, incognito:false};
+        return { valid: engine.identify(a) !== undefined && engine.identify(b) !== undefined,
+          equivalent: engine.equivalent(a,b),
+          contextSeparated: !engine.equivalent(a, {...a, incognito:true}) };
+      });
+      const engine = compile([]);
+      if (engine.kind !== 'ready') throw new Error(engine.message);
+      return {results, invalid:invalid.map(url => {
+        const candidate = {url, incognito:false};
+        return engine.identify(candidate) === undefined && !engine.equivalent(candidate,candidate);
+      })};
+    }, {cases:duplicateCases, invalid:invalidCandidates});
+    for (const [index, [name,,,, equivalent]] of duplicateCases.entries()) {
+      expect(actual.results[index], name).toEqual({valid:true, equivalent, contextSeparated:true});
+    }
+    expect(actual.invalid).toEqual(invalidCandidates.map(() => true));
+  } finally {
+    await page.close();
+    await rm(fixture, { recursive:true, force:true });
+  }
 });
+
+for (const legacy of [{schemaVersion:1, enabled:true}, validV2]) {
+  test(`migrates version ${legacy.schemaVersion} in memory without writing storage`, async ({ foundation }) => {
+    const { options } = foundation;
+    await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), legacy);
+    const bytes = await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig));
+    expect(JSON.parse(bytes)).toEqual(legacy);
+    const before = await snapshot(options);
+    await options.reload();
+    await expect(options.getByRole('status')).toContainText('enabled');
+    await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'info');
+    expect(await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig))).toBe(bytes);
+    expect(await snapshot(options)).toEqual(before);
+  });
+}
 
 for (const [name, value, message] of [
   ['invalid', { schemaVersion: 1, enabled: 'yes' }, 'Stored configuration is invalid'],
   ['invalid rules', { schemaVersion: 2, enabled: true, groupingRules: [{ pattern: 'https://example.com/?x', group: 'Bad' }] }, 'Stored configuration is invalid'],
-  ['future', { schemaVersion: 99, enabled: true, futureRule: 'preserve me' }, 'requires a newer extension version'],
+  ['invalid duplicate rules', invalidV3, 'Stored configuration is invalid'],
+  ['future', { schemaVersion: 4, enabled: true, futureRule: 'preserve me' }, 'requires a newer extension version'],
 ] as const) {
   test(`shows ${name} configuration errors without overwriting stored data`, async ({ foundation }) => {
     const { options } = foundation;
+    const before = await snapshot(options);
     await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), value);
     await expect(options.getByRole('status')).toContainText(message);
     await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'error');
     await options.reload();
     await expect(options.getByRole('status')).toContainText(message);
     expect(await options.evaluate(async () => (await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig)).toEqual(value);
+    expect(await snapshot(options)).toEqual(before);
   });
 }

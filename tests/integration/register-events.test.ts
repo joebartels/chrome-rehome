@@ -47,7 +47,7 @@ function navigation(overrides: Partial<chrome.webNavigation.WebNavigationTransit
     transitionType: 'link', transitionQualifiers: [], ...overrides,
   } satisfies chrome.webNavigation.WebNavigationTransitionCallbackDetails;
 }
-function setup(read: () => Promise<Record<string, unknown>> = async () => ({ chromeReHomeConfig: { schemaVersion: 2, enabled: true, groupingRules: [] } })) {
+function setup(read: () => Promise<Record<string, unknown>> = async () => ({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } })) {
   const fake = fakeApi(read);
   const api = fake as unknown as Parameters<typeof registerEvents>[0] & Pick<typeof chrome, 'storage'>;
   const config = createConfigRepository(createChromeConfigStorage(api));
@@ -72,7 +72,7 @@ describe('worker event registration', () => {
     }
     const pending = fake.fake.webNavigation.onCommitted.emit(navigation());
     expect(fake.consumed).toEqual([]);
-    resolve({ chromeReHomeConfig: { schemaVersion: 2, enabled: true, groupingRules: [] } });
+    resolve({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } });
     await Promise.all([ready, ...pending]);
     expect(fake.consumed).toHaveLength(1);
   });

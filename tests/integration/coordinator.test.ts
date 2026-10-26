@@ -10,7 +10,7 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-const enabled = { schemaVersion: 2, enabled: true, groupingRules: [] };
+const enabled = { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] };
 function input(tabId = 7, timeStamp = 100): NavigationInput {
   return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed' };
 }
@@ -40,7 +40,7 @@ describe('navigation coordinator', () => {
     expect(fake.diagnostics.snapshot().filter((event) => event.code === 'worker-started')).toHaveLength(1);
   });
 
-  it.each([undefined, { schemaVersion: 2, enabled: false, groupingRules: [] }, {}, { schemaVersion: 2 }, 'invalid'])
+  it.each([undefined, { schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] }, {}, { schemaVersion: 2 }, 'invalid'])
   ('skips consume for disabled or unavailable configuration %j', async (raw) => {
     const fake = setup(vi.fn(async () => raw));
     await fake.coordinator.handle(input());
@@ -60,7 +60,7 @@ describe('navigation coordinator', () => {
     const gate = deferred<void>();
     const blocked = fake.queue.run(() => gate.promise);
     const pending = fake.coordinator.handle(input());
-    await fake.config.save({ schemaVersion: 2, enabled: false, groupingRules: [] });
+    await fake.config.save({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
     await fake.config.save(enabled);
     gate.resolve();
     await Promise.all([blocked, pending]);
@@ -73,7 +73,7 @@ describe('navigation coordinator', () => {
     const initial = deferred<unknown>();
     const fake = setup(vi.fn(() => initial.promise));
     const pending = fake.coordinator.handle(input());
-    await fake.config.save({ schemaVersion: 2, enabled: false, groupingRules: [] });
+    await fake.config.save({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
     initial.resolve(enabled);
     await pending;
     expect(fake.consumed).toEqual([]);
