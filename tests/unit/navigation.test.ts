@@ -24,6 +24,7 @@ describe('navigation eligibility and runtime ownership', () => {
     { transitionType: 'start_page' }, { transitionType: undefined }, { transitionType: 'invented' },
     { transitionType: 'auto_subframe' }, { transitionType: 'manual_subframe' },
     { transitionQualifiers: undefined }, { transitionQualifiers: ['unknown'] },
+    { transitionQualifiers: Array<string>(1) },
     { transitionQualifiers: 'forward_back' }, { documentId: undefined }, { documentId: '' },
     { documentLifecycle: undefined }, { documentLifecycle: 'prerender' },
     { documentLifecycle: 'cached' }, { documentLifecycle: 'pending_deletion' },
@@ -37,6 +38,23 @@ describe('navigation eligibility and runtime ownership', () => {
     expect(tracker.isCurrent(first)).toBe(false);
     expect(tracker.isViewCurrent(view)).toBe(false);
     expect(tracker.observe(input({ kind: 'history', url: 'https://example.com/later', timeStamp: 102 }))).toBeUndefined();
+  });
+
+  it('sparse qualifier metadata revokes synchronously, blocks the tab and clears all provenance', () => {
+    const tracker = createNavigationTracker();
+    const first = tracker.observe(input())!;
+    const view = tracker.view();
+    expect(tracker.observe(input({ timeStamp: 101, transitionQualifiers: Array<string>(1) }))).toBeUndefined();
+    expect(tracker.isCurrent(first)).toBe(false);
+    expect(tracker.isViewCurrent(view)).toBe(false);
+    expect(tracker.view().navigations).toEqual([]);
+    expect(tracker.view().blockedTabIds).toEqual([7]);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 102, url: 'https://example.com/spa' }))).toBeUndefined();
+    expect(tracker.observe(input({ kind: 'fragment', timeStamp: 103, url: 'https://example.com/spa#hash' }))).toBeUndefined();
+    tracker.invalidate(7);
+    expect(tracker.observe(input({ timeStamp: 104, documentId: 'redirected', url: 'https://example.com/redirected',
+      transitionQualifiers: ['client_redirect'] }))).toBeUndefined();
+    expect(tracker.view().navigations).toEqual([]);
   });
 
   it.each(['chrome://settings', 'about:blank', 'file:///tmp/page.html', 'not a URL', 'https://',

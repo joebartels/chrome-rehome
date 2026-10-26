@@ -76,7 +76,7 @@ export function createNavigationTracker() {
         && typeof input.documentId === 'string' && input.documentId.length > 0
         && input.documentLifecycle === 'active' && (input.frameType === undefined || input.frameType === 'outermost_frame')
         && typeof input.transitionType === 'string' && known.has(input.transitionType)
-        && Array.isArray(input.transitionQualifiers) && input.transitionQualifiers.every((value) => qualifiers.has(value));
+        && Array.isArray(input.transitionQualifiers) && [...input.transitionQualifiers].every((value) => qualifiers.has(value));
       if (!metadata || !['committed', 'history', 'fragment'].includes(input.kind)) {
         delete state.provenance;
         state.blocked = true;
