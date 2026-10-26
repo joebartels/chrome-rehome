@@ -1,6 +1,6 @@
 # 004: Navigation eligibility and winner selection
 
-Status: implemented; controller review and completion decision pending. Scope stops before 005.
+Status: Complete — locally verified 2026-10-26; paused before Task 005.
 
 Depends on: 002
 
@@ -34,7 +34,7 @@ The greatest observed sequence wins; equal sequence chooses lowest tab ID. Brows
 
 ## Verification and browser limits
 
-Unit/integration gates cover eligibility, complete-view winner selection, strict native freshness under relaxed identity, pending/context/pinning, replacement order, deferred initialization, configuration revision invalidation, immutable ownership and redacted failures. Tests were observed failing before implementation. Exact commands/results live in `.superpowers/sdd/2026-10-26-navigation-eligibility/task-1-report.md`.
+Unit/integration gates cover eligibility, complete-view winner selection, strict native freshness under relaxed identity, pending/context/pinning, replacement order, deferred initialization, configuration revision invalidation, immutable ownership and redacted failures. Tests were observed failing before implementation. Fresh independent controller verification on `historical-revision`: 640 tests across 18 files, 21 isolated Chromium tests, typecheck, build and package validation passed. The task review found one sparse-qualifier validation defect, corrected with RED/GREEN regressions and approved scoped re-review; the whole-feature review found no remaining issue. See [completion evidence](../../reviews/2026-10-26-navigation-eligibility-completion.md) for commands, results and limits.
 
 `tests/browser/navigation.spec.ts` builds a disposable extension containing the actual registry/tracker/selector and a localhost fixture. Its test-only memory captures native transition/lifecycle/document metadata. Browser assertions cover link/commit, server and immediate client redirects, push/replaceState, no-op state, hash, reload, back/forward, latest matching navigation, real pendingUrl exclusion and actual worker-stop/restart provenance loss. No fabricated event is browser evidence. Delayed script metadata is recorded separately from qualified client redirects.
 
