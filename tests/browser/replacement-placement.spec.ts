@@ -6,61 +6,229 @@ import { join, resolve } from 'node:path';
 
 let origin: string;
 let server: ReturnType<typeof createServer>;
-test.beforeAll(async()=>{
-  server=createServer((_req,res)=>{res.writeHead(200,{'content-type':'text/html'});res.end('<title>Placement trial</title><a href="/target">Navigate</a>');});
-  await new Promise<void>(done=>server.listen(0,'127.0.0.1',done));
-  origin=`http://127.0.0.1:${(server.address() as {port:number}).port}`;
+test.beforeAll(async () => {
+  server = createServer((_req, res) => {
+    res.writeHead(200, { 'content-type': 'text/html' });
+    res.end('<title>Placement trial</title><a href="/target">Navigate</a>');
+  });
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
+  origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
 });
-test.afterAll(async()=>{await new Promise<void>((done,fail)=>server.close(e=>e?fail(e):done()));});
-async function fixture(run:(context:BrowserContext,options:Page)=>Promise<void>){
-  const profile=await mkdtemp(join(tmpdir(),'chromerehome-placement-'));
-  const extension=resolve('dist');
-  const context=await chromium.launchPersistentContext(profile,{channel:'chromium',headless:true,args:[`--disable-extensions-except=${extension}`,`--load-extension=${extension}`]});
-  try {const worker=context.serviceWorkers()[0]??await context.waitForEvent('serviceworker'); const options=await context.newPage(); await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`); await run(context,options);}finally{await context.close();await rm(profile,{recursive:true,force:true});}
-}
-async function config(options:Page,title?:string,enabled=true){await options.evaluate(({origin,title,enabled})=>chrome.storage.local.set({chromeReHomeConfig:{schemaVersion:3,enabled,groupingRules:title?[{pattern:origin+'/*',group:title}]:[],duplicateRules:[]}}),{origin,title,enabled});await expect(options.getByRole('status')).toContainText(enabled?'enabled':'disabled');}
-async function tabs(options:Page){return options.evaluate(()=>chrome.tabs.query({windowType:'normal'}));}
-async function id(options:Page,page:Page){const url=page.url();return (await tabs(options)).find(t=>t.url===url)!.id!;}
-async function retain(options:Page,original:number[]){expect((await tabs(options)).map(t=>t.id).sort((a,b)=>a!-b!)).toEqual([...original].sort((a,b)=>a-b));}
+test.afterAll(async () => {
+  await new Promise<void>((done, fail) => server.close(e => e ? fail(e) : done()));
+});
 
-test('production grouping-only, history, retained tabs and disable',async()=>fixture(async(context,options)=>{
-  const winner=await context.newPage(); await winner.goto(origin+'/before'); const winnerId=await id(options,winner); const original=(await tabs(options)).map(t=>t.id!);
-  await config(options,'Trial'); await winner.getByRole('link').click();
-  await expect.poll(async()=> (await tabs(options)).find(t=>t.id===winnerId)?.groupId).not.toBe(-1);
-  const placed=(await tabs(options)).find(t=>t.id===winnerId)!; expect(placed.url).toBe(origin+'/target');
-  expect(await options.evaluate(id=>chrome.tabGroups.get(id).then(g=>g.title),placed.groupId)).toBe('Trial'); await retain(options,original);
-  await config(options,undefined,false); await winner.goBack(); expect(winner.url()).toBe(origin+'/before'); await retain(options,original);
-  await options.evaluate(id=>chrome.tabs.ungroup(id),winnerId); await winner.getByRole('link').click(); await expect.poll(async()=> (await tabs(options)).find(t=>t.id===winnerId)?.url).toBe(origin+'/target'); expect((await tabs(options)).find(t=>t.id===winnerId)!.groupId).toBe(-1);
-}));
-
-for(const direction of ['before','after'] as const) test(`production same-window inheritance winner ${direction} anchor`,async()=>fixture(async(context,options)=>{
-  const anchor=await context.newPage(); await anchor.goto(origin+'/target'); const anchorId=await id(options,anchor);
-  const winner=await context.newPage(); await winner.goto(origin+'/before'); const winnerId=await id(options,winner);
-  const spare=await context.newPage(); await spare.goto(origin+'/spare');
-  await options.evaluate(async({winnerId,anchorId,direction})=>{await chrome.tabs.move(winnerId,{index:direction==='before'?0:-1});if(direction==='after')await chrome.tabs.move(anchorId,{index:0});},{winnerId,anchorId,direction});
-  const before=await tabs(options); await config(options); await winner.getByRole('link').click();
-  await expect.poll(async()=>{const t=await tabs(options);return t.find(t=>t.id===winnerId)!.index-t.find(t=>t.id===anchorId)!.index;}).toBe(1);
-  const after=await tabs(options);expect(after.filter(t=>t.id!==winnerId).sort((a,b)=>a.index-b.index).map(t=>t.id)).toEqual(before.filter(t=>t.id!==winnerId).sort((a,b)=>a.index-b.index).map(t=>t.id));await retain(options,before.map(t=>t.id!)); await winner.goBack();expect(winner.url()).toBe(origin+'/before');
-}));
-
-for(const grouped of [false,true]) test(`production cross-window inheritance grouped=${grouped}, lone source and native effects`,async({},testInfo)=>fixture(async(context,options)=>{
-  const anchor=await context.newPage();await anchor.goto(origin+'/target');const anchorId=await id(options,anchor);
-  const winner=await context.newPage();await winner.goto(origin+'/before');const winnerId=await id(options,winner);
-  const setup=await options.evaluate(async({anchorId,winnerId,grouped})=>{let groupId=-1;if(grouped){groupId=await chrome.tabs.group({tabIds:[anchorId]});await chrome.tabGroups.update(groupId,{title:'Inherited',collapsed:true});} const source=await chrome.windows.create({tabId:winnerId,focused:false});const sourceGroup=await chrome.tabs.group({tabIds:[winnerId],createProperties:{windowId:source!.id!}});return {sourceWindow:source!.id!,sourceGroup,groupId,anchor:await chrome.tabs.get(anchorId),windows:await chrome.windows.getAll(),groups:await chrome.tabGroups.query({})};},{anchorId,winnerId,grouped});
-  expect((await tabs(options)).find(t=>t.id===winnerId)!.windowId).toBe(setup.sourceWindow);expect(setup.sourceWindow).not.toBe(setup.anchor.windowId);
-  if(grouped) {
-    const member=await context.newPage();await member.goto(origin+'/other-member');const memberId=await id(options,member);
-    await options.evaluate(async({memberId,groupId})=>{await chrome.tabs.group({tabIds:[memberId],groupId});await chrome.tabGroups.update(groupId,{collapsed:true});},{memberId,groupId:setup.groupId});
+async function fixture(run: (context: BrowserContext, options: Page) => Promise<void>) {
+  const profile = await mkdtemp(join(tmpdir(), 'chromerehome-placement-'));
+  const extension = resolve('dist');
+  const context = await chromium.launchPersistentContext(profile, {
+    channel: 'chromium',
+    headless: true,
+    args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
+  });
+  try {
+    const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
+    const options = await context.newPage();
+    await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`);
+    await run(context, options);
+  } finally {
+    await context.close();
+    await rm(profile, { recursive: true, force: true });
   }
-  const original=(await tabs(options)).map(t=>t.id!);await config(options);await winner.getByRole('link').click();
-  await expect.poll(async()=>{const t=(await tabs(options)).find(t=>t.id===winnerId)!;return {windowId:t.windowId,groupId:t.groupId,index:t.index};}).toEqual({windowId:setup.anchor.windowId,groupId:setup.groupId,index:setup.anchor.index+1});await retain(options,original);
-  const observed=await options.evaluate(async({groupId,sourceWindow})=>({tabs:await chrome.tabs.query({}),groups:await chrome.tabGroups.query({}),windows:await chrome.windows.getAll(),sourcePresent:(await chrome.windows.getAll()).some(w=>w.id===sourceWindow),groupId}),setup);
-  expect(observed.sourcePresent).toBe(false);expect(observed.groups.some(g=>g.id===setup.sourceGroup)).toBe(false);const evidence={version:context.browser()?.version(),before:setup,after:observed};const evidencePath=testInfo.outputPath('native-placement-effects.json');await writeFile(evidencePath,JSON.stringify(evidence,null,2));await testInfo.attach('native-placement-effects',{path:evidencePath,contentType:'application/json'});console.info('native cross-window',JSON.stringify({grouped,version:evidence.version,sourcePresent:observed.sourcePresent,activeTabs:observed.tabs.filter(t=>t.active).map(t=>({id:t.id,windowId:t.windowId})),groups:observed.groups.map(g=>({id:g.id,collapsed:g.collapsed})),focused:observed.windows.filter(w=>w.focused).map(w=>w.id)}));await winner.goBack();expect(winner.url()).toBe(origin+'/before');
+}
+
+async function config(options: Page, title?: string, enabled = true) {
+  await options.evaluate(({ origin, title, enabled }) => chrome.storage.local.set({
+    chromeReHomeConfig: {
+      schemaVersion: 3,
+      enabled,
+      groupingRules: title ? [{ pattern: origin + '/*', group: title }] : [],
+      duplicateRules: []
+    }
+  }), { origin, title, enabled });
+  await expect(options.getByRole('status')).toContainText(enabled ? 'enabled' : 'disabled');
+}
+
+async function tabs(options: Page) {
+  return options.evaluate(() => chrome.tabs.query({ windowType: 'normal' }));
+}
+
+async function id(options: Page, page: Page) {
+  const url = page.url();
+  return (await tabs(options)).find(t => t.url === url)!.id!;
+}
+
+async function retain(options: Page, original: number[]) {
+  expect((await tabs(options)).map(t => t.id).sort((a, b) => a! - b!))
+    .toEqual([...original].sort((a, b) => a - b));
+}
+
+test('production grouping-only, history, retained tabs and disable', async () => fixture(async (context, options) => {
+  const winner = await context.newPage();
+  await winner.goto(origin + '/before');
+  const winnerId = await id(options, winner);
+  const original = (await tabs(options)).map(t => t.id!);
+  await config(options, 'Trial');
+  await winner.getByRole('link').click();
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.groupId).not.toBe(-1);
+  const placed = (await tabs(options)).find(t => t.id === winnerId)!;
+  expect(placed.url).toBe(origin + '/target');
+  expect(await options.evaluate(id => chrome.tabGroups.get(id).then(g => g.title), placed.groupId)).toBe('Trial');
+  await retain(options, original);
+
+  await config(options, undefined, false);
+  await winner.goBack();
+  expect(winner.url()).toBe(origin + '/before');
+  await retain(options, original);
+  await options.evaluate(id => chrome.tabs.ungroup(id), winnerId);
+  await winner.getByRole('link').click();
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.url).toBe(origin + '/target');
+  expect((await tabs(options)).find(t => t.id === winnerId)!.groupId).toBe(-1);
 }));
 
-test('production configured override stays in incoming window and appends to collapsed group',async({},testInfo)=>fixture(async(context,options)=>{
-  const anchor=await context.newPage();await anchor.goto(origin+'/target');const anchorId=await id(options,anchor);await options.evaluate(async(id)=>{const moved=await chrome.windows.create({tabId:id});const g=await chrome.tabs.group({tabIds:[id],createProperties:{windowId:moved!.id!}});await chrome.tabGroups.update(g,{title:'Old'});},anchorId);
-  const member=await context.newPage();await member.goto(origin+'/member');const memberId=await id(options,member);const target=await options.evaluate(async(id)=>{const groupId=await chrome.tabs.group({tabIds:[id]});await chrome.tabGroups.update(groupId,{title:'Work',collapsed:true});return {groupId,windowId:(await chrome.tabs.get(id)).windowId};},memberId);
-  const winner=await context.newPage();await winner.goto(origin+'/before');const winnerId=await id(options,winner);await options.evaluate(async({winnerId,memberId,windowId})=>{await chrome.tabs.move(winnerId,{windowId,index:0});await chrome.tabs.update(memberId,{active:true});},{winnerId,memberId,windowId:target.windowId});
-  expect((await tabs(options)).find(t=>t.id===winnerId)!.active).toBe(false);expect((await tabs(options)).find(t=>t.id===anchorId)!.windowId).not.toBe(target.windowId);const original=(await tabs(options)).map(t=>t.id!);await config(options,'Work');await winner.getByRole('link').click();await expect.poll(async()=>{const t=(await tabs(options)).find(t=>t.id===winnerId)!;return {windowId:t.windowId,groupId:t.groupId};}).toEqual(target);const t=await tabs(options);expect(t.find(t=>t.id===winnerId)!.index).toBe(t.find(t=>t.id===memberId)!.index+1);await retain(options,original);const native={winner:(await tabs(options)).find(t=>t.id===winnerId),target:await options.evaluate(id=>chrome.tabGroups.get(id),target.groupId),windows:await options.evaluate(()=>chrome.windows.getAll())};const nativePath=testInfo.outputPath('native-background-override.json');await writeFile(nativePath,JSON.stringify(native,null,2));await testInfo.attach('native-background-override',{path:nativePath,contentType:'application/json'});console.info('native background override',JSON.stringify(native));await winner.goBack();expect(winner.url()).toBe(origin+'/before');
+for (const direction of ['before', 'after'] as const)
+  test(`production same-window inheritance winner ${direction} anchor`, async () => fixture(async (context, options) => {
+    const anchor = await context.newPage();
+    await anchor.goto(origin + '/target');
+    const anchorId = await id(options, anchor);
+    const winner = await context.newPage();
+    await winner.goto(origin + '/before');
+    const winnerId = await id(options, winner);
+    const spare = await context.newPage();
+    await spare.goto(origin + '/spare');
+    await options.evaluate(async ({ winnerId, anchorId, direction }) => {
+      await chrome.tabs.move(winnerId, { index: direction === 'before' ? 0 : -1 });
+      if (direction === 'after') await chrome.tabs.move(anchorId, { index: 0 });
+    }, { winnerId, anchorId, direction });
+    const before = await tabs(options);
+    await config(options);
+    await winner.getByRole('link').click();
+    await expect.poll(async () => {
+      const t = await tabs(options);
+      return t.find(t => t.id === winnerId)!.index - t.find(t => t.id === anchorId)!.index;
+    }).toBe(1);
+    const after = await tabs(options);
+    expect(after.filter(t => t.id !== winnerId).sort((a, b) => a.index - b.index).map(t => t.id))
+      .toEqual(before.filter(t => t.id !== winnerId).sort((a, b) => a.index - b.index).map(t => t.id));
+    await retain(options, before.map(t => t.id!));
+    await winner.goBack();
+    expect(winner.url()).toBe(origin + '/before');
+  }));
+
+for (const grouped of [false, true])
+  test(`production cross-window inheritance grouped=${grouped}, lone source and native effects`, async ({}, testInfo) => fixture(async (context, options) => {
+    const anchor = await context.newPage();
+    await anchor.goto(origin + '/target');
+    const anchorId = await id(options, anchor);
+    const winner = await context.newPage();
+    await winner.goto(origin + '/before');
+    const winnerId = await id(options, winner);
+    const setup = await options.evaluate(async ({ anchorId, winnerId, grouped }) => {
+      let groupId = -1;
+      if (grouped) {
+        groupId = await chrome.tabs.group({ tabIds: [anchorId] });
+        await chrome.tabGroups.update(groupId, { title: 'Inherited', collapsed: true });
+      }
+      const source = await chrome.windows.create({ tabId: winnerId, focused: false });
+      const sourceGroup = await chrome.tabs.group({ tabIds: [winnerId], createProperties: { windowId: source!.id! } });
+      return {
+        sourceWindow: source!.id!,
+        sourceGroup,
+        groupId,
+        anchor: await chrome.tabs.get(anchorId),
+        windows: await chrome.windows.getAll(),
+        groups: await chrome.tabGroups.query({})
+      };
+    }, { anchorId, winnerId, grouped });
+    expect((await tabs(options)).find(t => t.id === winnerId)!.windowId).toBe(setup.sourceWindow);
+    expect(setup.sourceWindow).not.toBe(setup.anchor.windowId);
+    if (grouped) {
+      const member = await context.newPage();
+      await member.goto(origin + '/other-member');
+      const memberId = await id(options, member);
+      await options.evaluate(async ({ memberId, groupId }) => {
+        await chrome.tabs.group({ tabIds: [memberId], groupId });
+        await chrome.tabGroups.update(groupId, { collapsed: true });
+      }, { memberId, groupId: setup.groupId });
+    }
+    const original = (await tabs(options)).map(t => t.id!);
+    await config(options);
+    await winner.getByRole('link').click();
+    await expect.poll(async () => {
+      const t = (await tabs(options)).find(t => t.id === winnerId)!;
+      return { windowId: t.windowId, groupId: t.groupId, index: t.index };
+    }).toEqual({ windowId: setup.anchor.windowId, groupId: setup.groupId, index: setup.anchor.index + 1 });
+    await retain(options, original);
+    const observed = await options.evaluate(async ({ groupId, sourceWindow }) => ({
+      tabs: await chrome.tabs.query({}),
+      groups: await chrome.tabGroups.query({}),
+      windows: await chrome.windows.getAll(),
+      sourcePresent: (await chrome.windows.getAll()).some(w => w.id === sourceWindow),
+      groupId
+    }), setup);
+    expect(observed.sourcePresent).toBe(false);
+    expect(observed.groups.some(g => g.id === setup.sourceGroup)).toBe(false);
+    const evidence = { version: context.browser()?.version(), before: setup, after: observed };
+    const evidencePath = testInfo.outputPath('native-placement-effects.json');
+    await writeFile(evidencePath, JSON.stringify(evidence, null, 2));
+    await testInfo.attach('native-placement-effects', { path: evidencePath, contentType: 'application/json' });
+    console.info('native cross-window', JSON.stringify({
+      grouped,
+      version: evidence.version,
+      sourcePresent: observed.sourcePresent,
+      activeTabs: observed.tabs.filter(t => t.active).map(t => ({ id: t.id, windowId: t.windowId })),
+      groups: observed.groups.map(g => ({ id: g.id, collapsed: g.collapsed })),
+      focused: observed.windows.filter(w => w.focused).map(w => w.id)
+    }));
+    await winner.goBack();
+    expect(winner.url()).toBe(origin + '/before');
+  }));
+
+test('production configured override stays in incoming window and appends to collapsed group', async ({}, testInfo) => fixture(async (context, options) => {
+  const anchor = await context.newPage();
+  await anchor.goto(origin + '/target');
+  const anchorId = await id(options, anchor);
+  await options.evaluate(async (id) => {
+    const moved = await chrome.windows.create({ tabId: id });
+    const g = await chrome.tabs.group({ tabIds: [id], createProperties: { windowId: moved!.id! } });
+    await chrome.tabGroups.update(g, { title: 'Old' });
+  }, anchorId);
+  const member = await context.newPage();
+  await member.goto(origin + '/member');
+  const memberId = await id(options, member);
+  const target = await options.evaluate(async (id) => {
+    const groupId = await chrome.tabs.group({ tabIds: [id] });
+    await chrome.tabGroups.update(groupId, { title: 'Work', collapsed: true });
+    return { groupId, windowId: (await chrome.tabs.get(id)).windowId };
+  }, memberId);
+  const winner = await context.newPage();
+  await winner.goto(origin + '/before');
+  const winnerId = await id(options, winner);
+  await options.evaluate(async ({ winnerId, memberId, windowId }) => {
+    await chrome.tabs.move(winnerId, { windowId, index: 0 });
+    await chrome.tabs.update(memberId, { active: true });
+  }, { winnerId, memberId, windowId: target.windowId });
+  expect((await tabs(options)).find(t => t.id === winnerId)!.active).toBe(false);
+  expect((await tabs(options)).find(t => t.id === anchorId)!.windowId).not.toBe(target.windowId);
+  const original = (await tabs(options)).map(t => t.id!);
+  await config(options, 'Work');
+  await winner.getByRole('link').click();
+  await expect.poll(async () => {
+    const t = (await tabs(options)).find(t => t.id === winnerId)!;
+    return { windowId: t.windowId, groupId: t.groupId };
+  }).toEqual(target);
+  const t = await tabs(options);
+  expect(t.find(t => t.id === winnerId)!.index).toBe(t.find(t => t.id === memberId)!.index + 1);
+  await retain(options, original);
+  const native = {
+    winner: (await tabs(options)).find(t => t.id === winnerId),
+    target: await options.evaluate(id => chrome.tabGroups.get(id), target.groupId),
+    windows: await options.evaluate(() => chrome.windows.getAll())
+  };
+  const nativePath = testInfo.outputPath('native-background-override.json');
+  await writeFile(nativePath, JSON.stringify(native, null, 2));
+  await testInfo.attach('native-background-override', { path: nativePath, contentType: 'application/json' });
+  console.info('native background override', JSON.stringify(native));
+  await winner.goBack();
+  expect(winner.url()).toBe(origin + '/before');
 }));
