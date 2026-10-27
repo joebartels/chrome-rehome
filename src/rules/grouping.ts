@@ -62,7 +62,7 @@ export function compileGroupingRules(raw: unknown): Compilation {
       !Object.hasOwn(value, 'pattern') || !Object.hasOwn(value, 'group') ||
       Reflect.ownKeys(value).length !== (Object.hasOwn(value, 'enabled') ? 3 : 2) ||
       (Object.hasOwn(value, 'enabled') && typeof (value as Record<string, unknown>).enabled !== 'boolean')) {
-      return { kind: 'invalid', ruleIndex, message: 'Each rule must contain only pattern and group.' };
+      return { kind: 'invalid', ruleIndex, message: 'Each rule must contain only pattern and group, with optional boolean enabled.' };
     }
     const { pattern, group, enabled } = value as Record<string, unknown>;
     if (typeof pattern !== 'string' || !validText(pattern, 2048) || pattern.includes('\\')) {

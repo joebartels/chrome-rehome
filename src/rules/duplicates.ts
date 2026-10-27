@@ -72,7 +72,7 @@ export function compileDuplicateRules(raw: unknown): Compilation {
       Reflect.ownKeys(value).length !== keys.length + (Object.hasOwn(value, 'enabled') ? 1 : 0) ||
       !keys.every((key) => Object.hasOwn(value, key)) ||
       (Object.hasOwn(value, 'enabled') && typeof (value as Record<string, unknown>).enabled !== 'boolean')) {
-      return invalid('Each duplicate rule must contain only origin, ignoreQueryParameters and the three boolean flags.');
+      return invalid('Each duplicate rule must contain only origin, ignoreQueryParameters and the three boolean flags, with optional boolean enabled.');
     }
     const { origin, ignoreQueryParameters, ignoreFragment, ignoreTrailingSlash, sortQueryParameters, enabled } = value as Record<string, unknown>;
     if (!validText(origin, 2048) || origin.includes('\\') || origin.includes('*') || origin.includes('@') ||

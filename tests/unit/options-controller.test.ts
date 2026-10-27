@@ -67,6 +67,25 @@ describe('options controller', () => {
     await h.controller.save(); expect(h.writes).toHaveLength(0);
   });
 
+  it('clears the obsolete Reload instruction when saved settings return to the draft base', async () => {
+    const h = harness(); await h.controller.ready; edit(h);
+    h.external(other); await flush();
+    expect(h.controller.getState()).toMatchObject({ dirty: true, conflict: true });
+    expect(h.controller.getState().message).toMatch(/reload saved settings/i);
+    h.external(empty); await flush();
+    expect(h.controller.getState()).toMatchObject({ dirty: true, conflict: false, message: 'Unsaved changes.' });
+    expect(h.controller.getState().draft?.groupingRules[0]?.group).toBe('Work');
+    expect(h.writes).toHaveLength(0);
+  });
+
+  it('does not claim unsaved changes after an edit restores the saved document', async () => {
+    const h = harness(); await h.controller.ready; edit(h);
+    expect(h.controller.getState()).toMatchObject({ dirty: true, message: 'Unsaved changes.' });
+    h.controller.edit(draft => { draft.groupingRules = []; });
+    expect(h.controller.getState()).toMatchObject({ dirty: false, conflict: false, message: 'Draft matches saved settings.' });
+    expect(h.writes).toHaveLength(0);
+  });
+
   it.each([{}, { schemaVersion: 99 }, undefined])('keeps existing draft when external settings become unavailable: %j', async raw => {
     const h = harness(); await h.controller.ready; edit(h);
     h.external(raw === undefined ? { schemaVersion: 4, enabled: 'bad' } : raw); await flush();
@@ -203,8 +222,23 @@ describe('options controller', () => {
     await h.controller.save();
     expect(h.controller.getState()).toMatchObject({ busy: false, dirty: true, conflict: false });
     expect(h.controller.getState().message).toMatch(/written.*could not.*verif/i);
+    h.setRead(async () => h.raw);
+    h.external(h.writes[0]); await flush();
+    expect(h.controller.getState().message).toMatch(/written.*could not.*verif/i);
     h.setRead(async () => h.raw); h.setWrite(async value => { h.setRaw(value); }); await h.controller.save();
     expect(h.controller.getState()).toMatchObject({ dirty: false, message: 'Settings saved.' });
+  });
+
+  it('restores the verification warning when a written draft conflict returns to its baseline', async () => {
+    const h = harness(); await h.controller.ready; edit(h);
+    h.setWrite(async value => { h.setRaw(value); h.setRead(async () => { throw new Error(); }); });
+    await h.controller.save();
+    h.setRead(async () => h.raw);
+    h.external(other); await flush();
+    expect(h.controller.getState().conflict).toBe(true);
+    h.external(h.writes[0]); await flush();
+    expect(h.controller.getState()).toMatchObject({ dirty: true, conflict: false });
+    expect(h.controller.getState().message).toMatch(/written.*could not.*verif/i);
   });
 
   it('a different document at verification becomes conflict rather than a saved acknowledgement', async () => {

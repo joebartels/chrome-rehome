@@ -61,6 +61,7 @@ export function createOptionsController(repository: ReturnType<typeof createConf
   function observe(state: ConfigState): void {
     if (disposed) return;
     const wasDirty = getState().dirty;
+    const hadConflict = conflict;
     saved = state;
     if (phase === 'preflight' || phase === 'write' || phase === 'verify') {
       // A write can echo both its previous value and its pending candidate.
@@ -76,6 +77,9 @@ export function createOptionsController(repository: ReturnType<typeof createConf
         else conflict = !base || !sameConfig(base, state.config);
       } else if (draft) conflict = true;
       if (conflict) message = 'Saved settings changed. Reload saved settings before saving your draft.';
+      else if (hadConflict) message = unverified
+        ? 'Settings were written, but current settings could not be verified. Try saving again.'
+        : getState().dirty ? 'Unsaved changes.' : 'Draft matches saved settings.';
     }
     emit();
   }
@@ -201,7 +205,8 @@ export function createOptionsController(repository: ReturnType<typeof createConf
       draft = { enabled: next.enabled,
         groupingRules: next.groupingRules.map(rule => ({ ...rule })),
         duplicateRules: next.duplicateRules.map(rule => ({ ...rule })) };
-      message = conflict ? 'Saved settings changed. Reload saved settings before saving your draft.' : 'Unsaved changes.';
+      message = conflict ? 'Saved settings changed. Reload saved settings before saving your draft.'
+        : getState().dirty ? 'Unsaved changes.' : 'Draft matches saved settings.';
       emit();
     },
     dispose(): void {
