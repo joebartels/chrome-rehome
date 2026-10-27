@@ -5,6 +5,7 @@ import { mountOptions } from './view';
 const options = mountOptions({
   heading: document.getElementById('status-heading')!,
   message: document.getElementById('status-message')!,
+  ...(document.getElementById('editor') ? { editor: document.getElementById('editor')! } : {}),
 }, createConfigRepository(createChromeConfigStorage(chrome)));
 
 window.addEventListener('pagehide', () => { options.dispose(); }, { once: true });

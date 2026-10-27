@@ -14,7 +14,7 @@ describe('options status', () => {
     const view = createOptionsView(parseConfig({ schemaVersion: 4, enabled, groupingRules: [], duplicateRules: [] }));
     expect(view.heading).toContain('ChromeReHome installed');
     expect(view.message).toContain(enabled ? 'enabled' : 'disabled');
-    expect(view.message).toBe(enabled ? 'Automatic replacement is enabled. Older duplicate tabs may close after verified placement. Rule editing is not available yet. Interrupted operations may pause processing until Chrome restarts.' : 'Automatic replacement is disabled. Rule editing is not available yet.');
+    expect(view.message).toBe(enabled ? 'Automatic replacement is enabled. Older duplicate tabs may close after verified placement. Interrupted operations may pause processing until Chrome restarts.' : 'Automatic replacement is disabled.');
     expect(view.severity).toBe('info');
   });
 
@@ -47,7 +47,7 @@ describe('options status', () => {
     let enabled = false;
     let teardown!: () => void;
     const write = vi.fn(async () => {});
-    vi.stubGlobal('document', { getElementById: (id: string) => id === 'status-heading' ? target.heading : target.message });
+    vi.stubGlobal('document', { getElementById: (id: string) => id === 'status-heading' ? target.heading : id === 'status-message' ? target.message : null });
     vi.stubGlobal('window', { addEventListener: (name: string, listener: () => void) => {
       expect(name).toBe('pagehide');
       teardown = listener;
