@@ -1,6 +1,6 @@
 # 007: Rule editor and matching preview
 
-Status: IN PROGRESS (2026-10-27)
+Status: COMPLETE (2026-10-27)
 
 Depends on: 001, 002, 003
 
@@ -14,10 +14,10 @@ options/; config migrations and repository; typed internal messaging only where 
 
 ## Acceptance criteria and decisions
 
-- [ ] Support adding, editing, ordering, disabling, and deleting rules with inline validation.
-- [ ] Show which rule matches a pasted URL and distinguish group destination from duplicate identity.
-- [ ] Persist atomically as a validated settings document; surface storage errors without claiming a save.
-- [ ] Test invalid input, first-match precedence after reorder, config change propagation, migration, keyboard operation and accessible labels.
+- [x] Support adding, editing, ordering, disabling, and deleting rules with inline validation.
+- [x] Show which rule matches a pasted URL and distinguish group destination from duplicate identity.
+- [x] Persist atomically as a validated settings document; surface storage errors without claiming a save.
+- [x] Test invalid input, first-match precedence after reorder, config change propagation, migration, keyboard operation and accessible labels.
 
 ## Implementation discipline
 
@@ -28,3 +28,7 @@ Start with the behavior tests named above; run them failing before implementatio
 See [design](../../superpowers/specs/2026-10-27-rule-editor-design.md) and [plan](../../superpowers/plans/2026-10-27-rule-editor.md). Canonical schema 4 stores enabled flags on each rule; strict legacy versions migrate in memory without writes. Disabled rules remain editable and validated. Disabling a duplicate policy restores conservative duplicate comparison; it does not exempt an origin from replacement. Both lists retain order; duplicate origins must be unique, so duplicate-policy order has no precedence.
 
 The native options page uses explicit Save, with separate grouping and duplicate previews powered by the same runtime compilers. Preview URLs are memory-only. Global activation stays unchanged; Task 008 owns activation/pause and protection controls. Dirty drafts survive observed external conflicts and save failures. Storage has no compare-and-swap: preflight and verification detect observed changes without promising fully serialized cross-page writes.
+
+## Completion evidence
+
+See [completion report and Chrome walkthrough](../../reviews/2026-10-27-rule-editor-completion.md). Independent task and whole-feature reviews approved the work; both final Minor findings were fixed and independently re-reviewed. Final verification: TypeScript, 962 unit/integration tests, build/package, 108 browser tests with zero skips/flaky/failures, including all five native external-app cases. Exactly five package files and unchanged permissions/dependencies. Work pauses before Task 008; its controls/protections remain unimplemented.
