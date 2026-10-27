@@ -12,7 +12,7 @@ function deferred<T>() {
   const promise = new Promise<T>((done) => { resolve = done; });
   return { promise, resolve };
 }
-const enabled = { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] };
+const enabled = { schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] };
 function createInput(tabId = 7, timeStamp = 100, transitionType = 'link'): NavigationInput {
   return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed', documentId: 'doc', documentLifecycle: 'active', transitionType, transitionQualifiers: [] };
 }
@@ -44,7 +44,7 @@ describe.each(['link', 'start_page'])('navigation coordinator (%s)', transitionT
     expect(fake.diagnostics.snapshot().filter((event) => event.code === 'worker-started')).toHaveLength(1);
   });
 
-  it.each([undefined, { schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] }, {}, { schemaVersion: 2 }, 'invalid'])
+  it.each([undefined, { schemaVersion: 4, enabled: false, groupingRules: [], duplicateRules: [] }, {}, { schemaVersion: 2 }, 'invalid'])
   ('skips consume for disabled or unavailable configuration %j', async (raw) => {
     const fake = setup(vi.fn(async () => raw));
     await fake.coordinator.handle(input());
@@ -64,7 +64,7 @@ describe.each(['link', 'start_page'])('navigation coordinator (%s)', transitionT
     const gate = deferred<void>();
     const blocked = fake.queue.run(() => gate.promise);
     const pending = fake.coordinator.handle(input());
-    await fake.config.save({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
+    await fake.config.save({ schemaVersion: 4, enabled: false, groupingRules: [], duplicateRules: [] });
     await fake.config.save(enabled);
     gate.resolve();
     await Promise.all([blocked, pending]);
@@ -77,7 +77,7 @@ describe.each(['link', 'start_page'])('navigation coordinator (%s)', transitionT
     const initial = deferred<unknown>();
     const fake = setup(vi.fn(() => initial.promise));
     const pending = fake.coordinator.handle(input());
-    await fake.config.save({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
+    await fake.config.save({ schemaVersion: 4, enabled: false, groupingRules: [], duplicateRules: [] });
     initial.resolve(enabled);
     await pending;
     expect(fake.consumed).toEqual([]);

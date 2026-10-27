@@ -40,9 +40,9 @@ async function fixture(run: (context: BrowserContext, options: Page) => Promise<
 async function config(options: Page, title?: string, enabled = true) {
   await options.evaluate(({ origin, title, enabled }) => chrome.storage.local.set({
     chromeReHomeConfig: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       enabled,
-      groupingRules: title ? [{ pattern: origin + '/*', group: title }] : [],
+      groupingRules: title ? [{ enabled: true, pattern: origin + '/*', group: title }] : [],
       duplicateRules: []
     }
   }), { origin, title, enabled });

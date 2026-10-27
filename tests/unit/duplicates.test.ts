@@ -92,3 +92,25 @@ describe('duplicate rule compilation', () => {
     expect(compileDuplicateRules([{...policy,ignoreQueryParameters:['x','X']}]).kind).toBe('ready');
   });
 });
+
+
+it('reports the active compiled policy and disabling restores conservative identity', () => {
+  const active = compile([{ ...policy, enabled: true }]);
+  expect(active.match(candidate('https://example.test/a'))).toBe(active.rules[0]);
+  const disabled = compile([{ ...policy, enabled: false }]);
+  expect(disabled.rules).toEqual([{ ...policy, enabled: false }]);
+  expect(disabled.match(candidate('https://example.test/a'))).toBeUndefined();
+  expect(disabled.equivalent(candidate('https://example.test/a?utm_source=x'), candidate('https://example.test/a'))).toBe(false);
+  expect(active.equivalent(candidate('https://example.test/a?utm_source=x'), candidate('https://example.test/a'))).toBe(true);
+  expect(compileDuplicateRules([{ ...policy, enabled: false, origin: 'invalid' }])).toMatchObject({ kind: 'invalid' });
+  expect(compileDuplicateRules([{ ...policy, enabled: false }, { ...policy, enabled: true, origin: 'HTTPS://EXAMPLE.test:443/' }])).toMatchObject({ kind: 'invalid', ruleIndex: 1 });
+});
+it('duplicate policy match rejects the same malformed URLs and contexts as identity', () => {
+  const engine = compile([{ ...policy, enabled: true }]);
+  for (const invalid of [{ url: 'https://example.test/', incognito: 'false' }, ...invalidCandidates.map(url => candidate(url))]) {
+    expect(engine.match(invalid as DuplicateCandidate)).toBeUndefined();
+  }
+});
+it.each([undefined, 'false', 0])('rejects explicit nonboolean duplicate enabled %j', enabled => {
+  expect(compileDuplicateRules([{ ...policy, enabled }])).toMatchObject({ kind: 'invalid', ruleIndex: 0 });
+});

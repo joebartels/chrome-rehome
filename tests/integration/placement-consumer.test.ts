@@ -8,9 +8,9 @@ import { createDiagnostics } from '../../src/diagnostics/diagnostics';
 import type { ReplacementPort } from '../../src/execution/replacement';
 import { createReplacementJournal } from '../../src/execution/journal';
 const enabled = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   enabled: true,
-  groupingRules: [{ pattern: 'https://example.com/*', group: 'Work' }],
+  groupingRules: [{ enabled: true, pattern: 'https://example.com/*', group: 'Work' }],
   duplicateRules: []
 };
 const input = (tabId = 1, timeStamp = 1): NavigationInput => ({

@@ -1,4 +1,5 @@
 export type DuplicateRule = Readonly<{
+  enabled?: boolean;
   origin: string;
   ignoreQueryParameters: readonly string[];
   ignoreFragment: boolean;
@@ -10,6 +11,7 @@ export type DuplicateCandidate = Readonly<{ url: string; incognito: boolean }>;
 
 type Compilation =
   | { kind: 'ready'; rules: readonly DuplicateRule[];
+      match(candidate: DuplicateCandidate): DuplicateRule | undefined;
       identify(candidate: DuplicateCandidate): string | undefined;
       equivalent(left: DuplicateCandidate, right: DuplicateCandidate): boolean }
   | { kind: 'invalid'; message: string; ruleIndex?: number };
@@ -60,16 +62,19 @@ export function compileDuplicateRules(raw: unknown): Compilation {
     return { kind: 'invalid', message: 'Duplicate rules must be an array of at most 100 rules.' };
   }
   const byOrigin = new Map<string, DuplicateRule>();
+  const origins = new Set<string>();
   const rules: DuplicateRule[] = [];
   const keys = ['origin', 'ignoreQueryParameters', 'ignoreFragment', 'ignoreTrailingSlash', 'sortQueryParameters'];
   for (let ruleIndex = 0; ruleIndex < raw.length; ruleIndex++) {
     const value: unknown = raw[ruleIndex];
     const invalid = (message: string): Compilation => ({ kind: 'invalid', ruleIndex, message });
     if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Reflect.ownKeys(value).length !== keys.length || !keys.every((key) => Object.hasOwn(value, key))) {
+      Reflect.ownKeys(value).length !== keys.length + (Object.hasOwn(value, 'enabled') ? 1 : 0) ||
+      !keys.every((key) => Object.hasOwn(value, key)) ||
+      (Object.hasOwn(value, 'enabled') && typeof (value as Record<string, unknown>).enabled !== 'boolean')) {
       return invalid('Each duplicate rule must contain only origin, ignoreQueryParameters and the three boolean flags.');
     }
-    const { origin, ignoreQueryParameters, ignoreFragment, ignoreTrailingSlash, sortQueryParameters } = value as Record<string, unknown>;
+    const { origin, ignoreQueryParameters, ignoreFragment, ignoreTrailingSlash, sortQueryParameters, enabled } = value as Record<string, unknown>;
     if (!validText(origin, 2048) || origin.includes('\\') || origin.includes('*') || origin.includes('@') ||
       origin.includes('?') || origin.includes('#') || !/^https?:\/\/[^/]+\/?$/i.test(origin)) {
       return invalid('Origin must be an exact HTTP(S) origin of 1–2048 characters, with only an optional final slash.');
@@ -79,7 +84,7 @@ export function compileDuplicateRules(raw: unknown): Compilation {
     if (!url || url.hostname.includes('*') || url.hostname.toLowerCase().includes('%2a')) {
       return invalid('Origin must be a valid exact HTTP(S) origin without wildcards.');
     }
-    if (byOrigin.has(url.origin)) return invalid('Duplicate canonical origin.');
+    if (origins.has(url.origin)) return invalid('Duplicate canonical origin.');
     if (!Array.isArray(ignoreQueryParameters) || ignoreQueryParameters.length > 100 ||
       ![...ignoreQueryParameters].every((name: unknown) => validText(name, 256)) ||
       new Set(ignoreQueryParameters).size !== ignoreQueryParameters.length) {
@@ -89,9 +94,10 @@ export function compileDuplicateRules(raw: unknown): Compilation {
       return invalid('All three duplicate normalization flags must be boolean.');
     }
     const rule = Object.freeze({ origin, ignoreQueryParameters: Object.freeze([...ignoreQueryParameters] as string[]),
-      ignoreFragment, ignoreTrailingSlash, sortQueryParameters });
+      ignoreFragment, ignoreTrailingSlash, sortQueryParameters, ...(Object.hasOwn(value, 'enabled') ? { enabled: enabled as boolean } : {}) });
     rules.push(rule);
-    byOrigin.set(url.origin, rule);
+    origins.add(url.origin);
+    if (rule.enabled !== false) byOrigin.set(url.origin, rule);
   }
   function identify(candidate: DuplicateCandidate): string | undefined {
     if (!candidate || typeof candidate.incognito !== 'boolean') return undefined;
@@ -107,6 +113,11 @@ export function compileDuplicateRules(raw: unknown): Compilation {
   }
   return {
     kind: 'ready', rules: Object.freeze(rules), identify,
+    match(candidate) {
+      if (!candidate || typeof candidate.incognito !== 'boolean') return undefined;
+      const url = parseCandidate(candidate.url);
+      return url ? byOrigin.get(url.origin) : undefined;
+    },
     equivalent(left, right) {
       const key = identify(left);
       return key !== undefined && key === identify(right);

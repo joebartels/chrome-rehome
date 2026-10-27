@@ -49,7 +49,7 @@ function navigation(overrides: Partial<chrome.webNavigation.WebNavigationTransit
     transitionType: 'link', transitionQualifiers: [], ...overrides,
   } satisfies chrome.webNavigation.WebNavigationTransitionCallbackDetails;
 }
-function setup(read: () => Promise<Record<string, unknown>> = async () => ({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } })) {
+function setup(read: () => Promise<Record<string, unknown>> = async () => ({ chromeReHomeConfig: { schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] } })) {
   const fake = fakeApi(read);
   const api = fake as unknown as Parameters<typeof registerEvents>[0] & Pick<typeof chrome, 'storage'>;
   const config = createConfigRepository(createChromeConfigStorage(api));
@@ -74,7 +74,7 @@ describe('worker event registration', () => {
     }
     const pending = fake.fake.webNavigation.onCommitted.emit(navigation());
     expect(fake.consumed).toEqual([]);
-    resolve({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } });
+    resolve({ chromeReHomeConfig: { schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] } });
     await Promise.all([ready, ...pending]);
     expect(fake.consumed).toHaveLength(1);
   });
@@ -226,7 +226,7 @@ describe('registry eligibility metadata and replacements', () => {
     const tabs = () => fake.fake.tabs.onReplaced.emit(8, 7);
     const nav = () => fake.fake.webNavigation.onTabReplaced.emit({ tabId: 8, replacedTabId: 7, timeStamp: 101 });
     if (order === 'tabs-first') { tabs(); nav(); } else { nav(); tabs(); }
-    resolve({ chromeReHomeConfig: { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] } });
+    resolve({ chromeReHomeConfig: { schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] } });
     await Promise.all(pending);
     expect(fake.consumed).toEqual([]);
     await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ tabId: 8, timeStamp: 102, transitionQualifiers: ['client_redirect'] })));

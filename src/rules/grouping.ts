@@ -1,4 +1,4 @@
-export type GroupingRule = Readonly<{ pattern: string; group: string }>;
+export type GroupingRule = Readonly<{ pattern: string; group: string; enabled?: boolean }>;
 
 type Compilation =
   | { kind: 'ready'; rules: readonly GroupingRule[]; match(url: string): GroupingRule | undefined }
@@ -40,6 +40,17 @@ function compilePattern(pattern: string): URLPattern[] {
   });
 }
 
+// Shared by matching and preview so unsupported input is distinct from no match.
+export function parseGroupingCandidate(candidate: string): URL | undefined {
+  if (candidate.trim() !== candidate || /[\\\p{Cc}]/u.test(candidate) || !/^https?:\/\/[^/]/i.test(candidate)) return undefined;
+  try {
+    const url = new URL(candidate);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? url : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function compileGroupingRules(raw: unknown): Compilation {
   if (!Array.isArray(raw) || raw.length > 100) {
     return { kind: 'invalid', message: 'Grouping rules must be an array of at most 100 rules.' };
@@ -48,10 +59,12 @@ export function compileGroupingRules(raw: unknown): Compilation {
   for (let ruleIndex = 0; ruleIndex < raw.length; ruleIndex++) {
     const value: unknown = raw[ruleIndex];
     if (value === null || typeof value !== 'object' || Array.isArray(value) ||
-      Reflect.ownKeys(value).length !== 2 || !Object.hasOwn(value, 'pattern') || !Object.hasOwn(value, 'group')) {
+      !Object.hasOwn(value, 'pattern') || !Object.hasOwn(value, 'group') ||
+      Reflect.ownKeys(value).length !== (Object.hasOwn(value, 'enabled') ? 3 : 2) ||
+      (Object.hasOwn(value, 'enabled') && typeof (value as Record<string, unknown>).enabled !== 'boolean')) {
       return { kind: 'invalid', ruleIndex, message: 'Each rule must contain only pattern and group.' };
     }
-    const { pattern, group } = value as Record<string, unknown>;
+    const { pattern, group, enabled } = value as Record<string, unknown>;
     if (typeof pattern !== 'string' || !validText(pattern, 2048) || pattern.includes('\\')) {
       return { kind: 'invalid', ruleIndex, message: 'Pattern must be 1–2048 characters without surrounding whitespace, controls or backslashes.' };
     }
@@ -62,7 +75,7 @@ export function compileGroupingRules(raw: unknown): Compilation {
       return { kind: 'invalid', ruleIndex, message: 'Group must be 1–80 characters without surrounding whitespace or controls.' };
     }
     try {
-      entries.push({ rule: Object.freeze({ pattern, group }), patterns: compilePattern(pattern) });
+      entries.push({ rule: Object.freeze({ pattern, group, ...(Object.hasOwn(value, 'enabled') ? { enabled: enabled as boolean } : {}) }), patterns: compilePattern(pattern) });
     } catch {
       return { kind: 'invalid', ruleIndex, message: 'Pattern must be a valid HTTP(S) URL with a hostname and optional numeric port.' };
     }
@@ -71,14 +84,8 @@ export function compileGroupingRules(raw: unknown): Compilation {
   return {
     kind: 'ready', rules,
     match(candidate: string): GroupingRule | undefined {
-      if (candidate.trim() !== candidate || /[\\\p{Cc}]/u.test(candidate) || !/^https?:\/\/[^/]/i.test(candidate)) return undefined;
-      try {
-        const url = new URL(candidate);
-        if (url.protocol !== 'http:' && url.protocol !== 'https:') return undefined;
-        return entries.find(({ patterns }) => patterns.some((pattern) => pattern.test(url.href)))?.rule;
-      } catch {
-        return undefined;
-      }
+      const url = parseGroupingCandidate(candidate);
+      return url ? entries.find(({ rule, patterns }) => rule.enabled !== false && patterns.some((pattern) => pattern.test(url.href)))?.rule : undefined;
     },
   };
 }

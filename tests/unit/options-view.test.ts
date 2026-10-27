@@ -11,7 +11,7 @@ afterEach(() => { vi.unstubAllGlobals(); });
 
 describe('options status', () => {
   it.each([true, false])('truthful enabled/disabled replacement status enabled=%s', (enabled) => {
-    const view = createOptionsView(parseConfig({ schemaVersion: 3, enabled, groupingRules: [], duplicateRules: [] }));
+    const view = createOptionsView(parseConfig({ schemaVersion: 4, enabled, groupingRules: [], duplicateRules: [] }));
     expect(view.heading).toContain('ChromeReHome installed');
     expect(view.message).toContain(enabled ? 'enabled' : 'disabled');
     expect(view.message).toBe(enabled ? 'Automatic replacement is enabled. Older duplicate tabs may close after verified placement. Rule editing is not available yet. Interrupted operations may pause processing until Chrome restarts.' : 'Automatic replacement is disabled. Rule editing is not available yet.');
@@ -53,7 +53,7 @@ describe('options status', () => {
       teardown = listener;
     } });
     vi.stubGlobal('chrome', { storage: {
-      local: { get: async () => ({ chromeReHomeConfig: { schemaVersion: 3, enabled, groupingRules: [], duplicateRules: [] } }), set: write },
+      local: { get: async () => ({ chromeReHomeConfig: { schemaVersion: 4, enabled, groupingRules: [], duplicateRules: [] } }), set: write },
       onChanged: {
         addListener: (listener: (changes: Record<string, unknown>, area: string) => void) => { listeners.add(listener); },
         removeListener: (listener: (changes: Record<string, unknown>, area: string) => void) => { listeners.delete(listener); },
@@ -78,14 +78,14 @@ describe('options status', () => {
     });
     const target = elements();
     const mounted = mountOptions(target, repository);
-    await repository.save({ schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] });
+    await repository.save({ schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] });
     expect(target.message.textContent).toContain('enabled');
-    resolve({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
+    resolve({ schemaVersion: 4, enabled: false, groupingRules: [], duplicateRules: [] });
     await mounted.ready;
     expect(target.message.textContent).toContain('enabled');
     mounted.dispose();
     mounted.dispose();
-    await repository.save({ schemaVersion: 3, enabled: false, groupingRules: [], duplicateRules: [] });
+    await repository.save({ schemaVersion: 4, enabled: false, groupingRules: [], duplicateRules: [] });
     expect(target.message.textContent).toContain('enabled');
     expect(detach).toHaveBeenCalledTimes(1);
   });

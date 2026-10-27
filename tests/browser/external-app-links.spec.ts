@@ -15,9 +15,9 @@ const cases: NativeCase[] = ['warm HTTP', 'warm HTTPS', 'HTTP to HTTPS final ide
 async function config(options: Page, url: string, enabled: boolean) {
   await options.evaluate(({ enabled, url }) => chrome.storage.local.set({
     chromeReHomeConfig: {
-      schemaVersion: 3,
+      schemaVersion: 4,
       enabled,
-      groupingRules: [{ pattern: new URL(url).origin + '/*', group: 'External' }],
+      groupingRules: [{ enabled: true, pattern: new URL(url).origin + '/*', group: 'External' }],
       duplicateRules: []
     }
   }), { enabled, url });

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { build } from 'esbuild';
 import validV3 from '../fixtures/config/valid-v3.json' with { type: 'json' };
+import validV4 from '../fixtures/config/valid-v4.json' with { type: 'json' };
 import invalidV3 from '../fixtures/config/invalid-v3.json' with { type: 'json' };
 import { duplicateCases, duplicateCompilationCases, invalidCandidates } from '../fixtures/duplicate-cases';
 import type { compileDuplicateRules } from '../../src/rules/duplicates';
@@ -48,9 +49,9 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   const { context, options, worker, extensionId } = foundation;
   const errors: string[] = [];
   options.on('pageerror', (error) => errors.push(error.message));
-  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), validV3);
+  await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), validV4);
   const storedBytes = await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig));
-  expect(JSON.parse(storedBytes)).toEqual(validV3);
+  expect(JSON.parse(storedBytes)).toEqual(validV4);
   await expect(options.getByRole('status')).toContainText('enabled');
   await expect(options.getByRole('status')).toContainText('Older duplicate tabs may close after verified placement.');
   await expect(options.getByRole('status')).toContainText('Interrupted operations may pause processing until Chrome restarts.');
@@ -191,7 +192,7 @@ test('runs the actual duplicate compiler with native Chromium URL and URLSearchP
   }
 });
 
-for (const legacy of [{schemaVersion:1, enabled:true}, validV2]) {
+for (const legacy of [{schemaVersion:1, enabled:true}, validV2, validV3]) {
   test(`migrates version ${legacy.schemaVersion} in memory without writing storage`, async ({ foundation }) => {
     const { options } = foundation;
     await options.evaluate((config) => chrome.storage.local.set({ chromeReHomeConfig: config }), legacy);
@@ -210,7 +211,7 @@ for (const [name, value, message] of [
   ['invalid', { schemaVersion: 1, enabled: 'yes' }, 'Stored configuration is invalid'],
   ['invalid rules', { schemaVersion: 2, enabled: true, groupingRules: [{ pattern: 'https://example.com/?x', group: 'Bad' }] }, 'Stored configuration is invalid'],
   ['invalid duplicate rules', invalidV3, 'Stored configuration is invalid'],
-  ['future', { schemaVersion: 4, enabled: true, futureRule: 'preserve me' }, 'requires a newer extension version'],
+  ['future', { schemaVersion: 99, enabled: true, futureRule: 'preserve me' }, 'requires a newer extension version'],
 ] as const) {
   test(`shows ${name} configuration errors without overwriting stored data`, async ({ foundation }) => {
     const { options } = foundation;

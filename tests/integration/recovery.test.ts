@@ -10,7 +10,7 @@ import { createDiagnostics } from '../../src/diagnostics/diagnostics';
 import { replacementFixture, deferred } from '../fixtures/replacement';
 const prepared:ReplacementJournal={version:1,operationId:'old',participants:[{tabId:1,incognito:false,documentId:'one'},{tabId:2,incognito:false,documentId:'anchor'}],completedPhase:'prepared',sequence:0,pending:null,removedTabIds:[],terminal:null};
 const input={tabId:1,timeStamp:1,frameId:0,url:'https://example.com/',documentId:'one',documentLifecycle:'active',transitionType:'link',transitionQualifiers:[],kind:'committed'} as const;
-const config={schemaVersion:3,enabled:true,groupingRules:[],duplicateRules:[]};
+const config={schemaVersion:4,enabled:true,groupingRules:[],duplicateRules:[]};
 describe('read-only restart admission',()=>{
   it('missing session record is ready after successful read',async()=>{const f=replacementFixture();const read=vi.spyOn(f.port,'read');const recovery=createRecovery({journal:f.journal,port:f.port});await recovery.initialize();expect(recovery.isReady()).toBe(true);expect(read).not.toHaveBeenCalled();expect(f.calls).toEqual([]);});
   it.each(['prepared','ungroup','move','group','title','placed','removed','completed','abandoned'])('restart abandons settled %s and never replays old closure',async phase=>{

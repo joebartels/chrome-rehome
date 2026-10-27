@@ -13,7 +13,7 @@ const trace: Array<NavigationInput & { eligible: boolean; sequence?: number }> =
 const failures: string[] = [];
 const replacements: Array<{ addedTabId: number; removedTabId: number }> = [];
 const coordinator = createCoordinator({ tracker, queue: createOperationQueue(), diagnostics: createDiagnostics(),
-  config: createConfigRepository({ read: async () => ({ schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] }),
+  config: createConfigRepository({ read: async () => ({ schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] }),
     write: async () => {}, subscribe: () => () => {} }), consume: async () => {} });
 const observed = { ...coordinator, replace(addedTabId: number, removedTabId: number) {
   replacements.push({ addedTabId, removedTabId });

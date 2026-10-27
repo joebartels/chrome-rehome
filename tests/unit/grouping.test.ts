@@ -96,3 +96,18 @@ describe('grouping rules', () => {
     expect(ready([{ pattern: '*://*/*', group: 'All' }]).match(url)).toBeUndefined();
   });
 });
+
+
+it('keeps disabled rules validated and listed while active order determines matching', () => {
+  const first = { enabled: false, pattern: 'https://example.test/*', group: 'Broad' };
+  const second = { enabled: true, pattern: 'https://example.test/a', group: 'Specific' };
+  const engine = ready([first, second]);
+  expect(engine.rules).toEqual([first, second]);
+  expect(engine.match('https://example.test/a')).toBe(engine.rules[1]);
+  const restored = ready([{ ...first, enabled: true }, second]);
+  expect(restored.match('https://example.test/a')).toBe(restored.rules[0]);
+  expect(compileGroupingRules([{ ...first, pattern: 'invalid' }])).toMatchObject({ kind: 'invalid', ruleIndex: 0 });
+});
+it.each([undefined, 'false', 0])('rejects explicit nonboolean grouping enabled %j', enabled => {
+  expect(compileGroupingRules([{ pattern: 'https://example.test/*', group: 'Work', enabled }])).toMatchObject({ kind: 'invalid', ruleIndex: 0 });
+});
