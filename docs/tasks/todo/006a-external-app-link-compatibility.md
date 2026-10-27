@@ -1,8 +1,8 @@
 # 006a: External-app link compatibility
 
-Status: Implementation and verification in progress; independent reviews and completion record pending. Pause before Task 007.
+Status: complete — implemented and locally verified on 2026-10-27. Paused before Task 007.
 
-Depends on: 006
+Depends on: 004, 006
 
 ## Decision
 
@@ -22,4 +22,8 @@ Portable regressions cover cold admission, final identity, provenance, reload re
 
 ## Boundary
 
-No new permissions, dependencies, schema, timer, keepalive, UI, recovery behavior or placement behavior. Task 006 guarantees remain unchanged. Independent spec/quality and whole-feature reviews, controller ledger updates and final completion are pending.
+No new permissions, dependencies, schema, timer, keepalive, UI, recovery behavior or placement behavior. Task 006 guarantees remain unchanged. Independent task/whole-feature reviews and the scoped test-cleanup review are complete; no finding remains open.
+
+## Completion
+
+Delegated implementation, independent task/whole-feature review, consolidated test cleanup and scoped re-review are complete. No finding remains open. Final verification: 889 portable tests, 99 full browser cases with no skips, five affected native cases rechecked after cleanup, typecheck/build/package/range-whitespace gates and exact five-file production package hash equality. Metadata was confirmed before the admission fix; native production RED then GREEN proves grouping and exact old-ID closure. See [completion and Chrome instructions](../../reviews/2026-10-27-external-app-links-completion.md). Paused before Task 007.
