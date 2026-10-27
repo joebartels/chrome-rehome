@@ -27,7 +27,7 @@ The production baseline regression opened a distinct external HTTPS tab but obse
 Use a disposable profile. Preserve/export configuration and pause before upgrading, following the [README controlled trial](../../README.md#controlled-replacement-trial). Load or reload `<repository>/dist` in chrome://extensions, then enable your Trial configuration.
 
 1. Keep one tab open at the exact full URL `https://example.com/` in the same Chrome profile where this extension is installed and enabled.
-2. Click that exact URL from an application outside Chrome. The new tab should join Trial; the older duplicate should close. The new ID and navigation history survive.
+2. Click that exact URL from iTerm (the reported source application) or another application outside Chrome. The new tab should join Trial; the older duplicate should close. The new ID and navigation history survive.
 3. Close worker DevTools and repeat after the extension worker becomes inactive; external navigation should wake it and follow the same pipeline.
 4. Pause enabled:false or disable the extension and repeat: both tabs should remain and no grouping should occur.
 
@@ -39,7 +39,7 @@ Admit valid active start_page navigation through the same existing guards becaus
 
 ## Evidence boundaries
 
-Verified native routing is macOS LaunchServices into the isolated bundled testing browser, not the exact user's app/profile. Ensure the actual external link reaches the profile with the extension installed. Native restore/reopen committed events and a whole-browser cold/restored-session matrix were not captured; core reload remains excluded, but unit/official semantics are not native restore proof. Configured startup/command-line grouping is a documented policy consequence, not a complete native startup matrix. Non-macOS native routing and Chrome 120/current-stable release coverage remain unverified; non-macOS explicitly skips these native cases. Trusted omnibox automation did not navigate, although the user reported manual typed navigation working. Production tests cover direct HTTP/HTTPS and one cross-scheme redirect; observer metadata covers four directions. Existing conservative prerender/canceled/cold-SPA behavior and broader Task 006 manual limits remain. Unsaved-form protection and default activation are later work.
+The user confirmed iTerm as the source app and `https://example.com` as the input URL after implementation. Verified native routing is macOS LaunchServices into the isolated bundled testing browser; no personal iTerm/Chrome profile was driven. Ensure the actual external link reaches the profile with the extension installed. Native restore/reopen committed events and a whole-browser cold/restored-session matrix were not captured; core reload remains excluded, but unit/official semantics are not native restore proof. Configured startup/command-line grouping is a documented policy consequence, not a complete native startup matrix. Non-macOS native routing and Chrome 120/current-stable release coverage remain unverified; non-macOS explicitly skips these native cases. Trusted omnibox automation did not navigate, although the user reported manual typed navigation working. Production tests cover direct HTTP/HTTPS and one cross-scheme redirect; observer metadata covers four directions. Existing conservative prerender/canceled/cold-SPA behavior and broader Task 006 manual limits remain. Unsaved-form protection and default activation are later work.
 
 ## Saved work
 
