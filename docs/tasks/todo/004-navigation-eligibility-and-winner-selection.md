@@ -2,6 +2,8 @@
 
 Status: Complete — locally verified 2026-10-26; paused before Task 005.
 
+**Policy amended 2026-10-27:** [006a](006a-external-app-link-compatibility.md) supersedes only the original `start_page` rejection. Historical Task 004 results below are retained.
+
 Depends on: 002
 
 ## Outcome and authority
@@ -13,14 +15,14 @@ Depends on: 002
 ## Eligibility decisions
 
 - Require main frame 0, HTTP(S), finite timestamp, nonempty document ID, active lifecycle, recognized transition metadata and known qualifiers. Supplied frame type must be `outermost_frame`. Reject credentials, whitespace, controls and backslashes. Preserve actual URL bytes.
-- Admit active commits of `link`, `typed`, `auto_bookmark`, `generated`, `form_submit`, `keyword`, `keyword_generated`, even at worker start or during configuration load. `forward_back` is allowed on those transitions.
-- Reject core `reload`, including `from_address_bar` and `forward_back`; reject `start_page`, unknown/missing metadata and nonactive lifecycles. No startup timer, preexisting-tab heuristic or restored flag is inferred.
+- Admit active commits of `link`, `typed`, `auto_bookmark`, `generated`, `form_submit`, `keyword`, `keyword_generated`, and (27 October amendment) `start_page`, even at worker start or during configuration load. `forward_back` is allowed on those transitions.
+- Reject core `reload`, including `from_address_bar` and `forward_back`; admit valid `start_page` including configured startup URLs; reject unknown/missing metadata and nonactive lifecycles. No startup timer, preexisting-tab heuristic or restored flag is inferred.
 - Server redirect final commits can qualify; before-navigate URLs never become candidates. `client_redirect` additionally needs trusted active-document provenance in this worker, preserved across before-navigate and cleared by ineligible commits/removal/replacement.
 - History/hash updates require trusted matching document ID, changed native `URL.href`, eligible metadata and no pending full navigation. No-op updates revoke prior work but retain trusted provenance. Delayed callbacks for another document cannot adopt provenance. Reload/cold-worker SPA updates cannot establish it.
-- Subframes cannot revoke main-frame work. Every distinct valid main-frame observation revokes prior generations before filtering. Exact full-fingerprint repeats do nothing. Nonactive/malformed input blocks the tab; a later recognized active commit clears that block even if reload/start_page is ineligible.
+- Subframes cannot revoke main-frame work. Every distinct valid main-frame observation revokes prior generations before filtering. Exact full-fingerprint repeats do nothing. Nonactive/malformed input blocks the tab; a later recognized active commit clears that block even if core reload is ineligible.
 - Both `tabs.onReplaced` and `webNavigation.onTabReplaced` clear both identities/provenance, block the added ID and synthesize no event or rank transfer. Removal forgets state. No error-event unblocking is attempted.
 
-This intentionally misses ambiguous external-app navigation reported as `start_page`, first SPA/hash activity after worker suspension, canceled navigation until another active commit, and prerender swaps without a fresh eligible commit. Ordinary link metadata may also admit scripts, as described above.
+The 27 October amendment accepts external-app `start_page` and indistinguishable configured startup URLs without claiming origin or user intent. This still intentionally misses first SPA/hash activity after worker suspension, canceled navigation until another active commit, and prerender swaps without a fresh eligible commit. Ordinary link metadata may also admit scripts, as described above.
 
 ## Freshness and selection
 
@@ -46,7 +48,7 @@ Use a disposable copy of `dist/` with the same test-only background bundle from 
 
 1. Navigate normally, close the fixture tab, then use browser **Reopen closed tab**. Inspect the actual committed type/qualifiers/document/lifecycle and eligibility. A core reload must be suppressed; history/hash and qualified client redirects from an untrusted restored document must not bootstrap trust. Record any unqualified `link` admission as the residual policy risk above.
 2. In that disposable profile only, enable **Continue where you left off**, open fixture pages, exit and relaunch the same isolated instance. Inspect actual restored commits and early script updates; do not infer restore completion from `runtime.onStartup`.
-3. Paste an HTTP(S) URL into the real browser address bar; record the reported transition and qualifiers. Open a URL from a separate application into that isolated browser instance and record metadata. Eligible types can qualify; `start_page` must be suppressed. The current harness cannot safely target a trusted external-app/omnibox action.
+3. Paste an HTTP(S) URL into the real browser address bar; record the reported transition and qualifiers. Open a URL from a separate application into that isolated browser instance and record metadata. Eligible types can qualify; `start_page` now qualifies under 006a. The original Task 004 harness could not safely target trusted external-app/omnibox actions; 006a adds isolated LaunchServices external-open coverage. Native restore commits remain uncaptured.
 4. With speculation rules available, prerender a local target and activate it via a link. Record native lifecycle and both replacement APIs. Replacement must clear both identities without transferring provenance/rank; subsequent ordinary active commit may qualify. If Chrome refuses prerender, record its native reason rather than manufacturing callbacks.
 
 ## Chrome trial roadmap

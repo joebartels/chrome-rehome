@@ -7,15 +7,73 @@ import { createOperationQueue } from '../../src/background/operation-queue';
 import { createDiagnostics } from '../../src/diagnostics/diagnostics';
 import type { ReplacementPort } from '../../src/execution/replacement';
 import { createReplacementJournal } from '../../src/execution/journal';
-const enabled={schemaVersion:3,enabled:true,groupingRules:[{pattern:'https://example.com/*',group:'Work'}],duplicateRules:[]};
-const input=(tabId=1,timeStamp=1):NavigationInput=>({tabId,timeStamp,frameId:0,url:'https://example.com/',documentId:'doc'+tabId,documentLifecycle:'active',transitionType:'link',transitionQualifiers:[],kind:'committed'});
-function fixture(raw:unknown){
-  const tracker=createNavigationTracker();let tabs=[{id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/'},{id:2,windowId:20,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/'}];let groups:{id:number;windowId:number;title?:string}[]=[];const frames:number[]=[];const mutations:number[]=[];let nextGroup=3;
-  const port:ReplacementPort={removeTab:async id=>{tabs=tabs.filter(t=>t.id!==id);tracker.forget(id);},read:async()=>({tabs,groups}),readDocument:async(tabId)=>{frames.push(tabId);if(tabId===2)return;return {tabId,documentId:'doc'+tabId,url:'https://example.com/',documentLifecycle:'active',frameType:'outermost_frame',parentFrameId:-1,errorOccurred:false};},moveTab:async()=>{throw Error('unexpected detour');},ungroupTab:async()=>{throw Error('unexpected ungroup');},groupTab:async(tabId,destination)=>{mutations.push(tabId);const groupId=nextGroup++;tabs=tabs.map(t=>t.id===tabId?{...t,groupId}:t);groups=[...groups,{id:groupId,windowId:destination.windowId,title:''}];return groupId;},setTitle:async(id,title)=>{groups=groups.map(g=>g.id===id?{...g,title}:g);}};
-  let changed=()=>{};let read:()=>Promise<unknown>=async()=>raw;
-  const config=createConfigRepository({read:()=>read(),write:async()=>{},subscribe:fn=>{changed=fn;return ()=>{};}});const queue=createOperationQueue();const diagnostics=createDiagnostics({enabled:true});
-  const coordinator=createCoordinator({tracker,config,queue,diagnostics,consume:createPlacementConsumer({tracker,port,journal:createReplacementJournal({storage:{read:async()=>undefined,write:async()=>{},clear:async()=>{}},createOperationId:()=> 'test'}),diagnostics})});
-  return {coordinator,tracker,config,queue,port,frames,mutations,diagnostics,reload:(next:()=>Promise<unknown>)=>{read=next;changed();}};
+const enabled = {
+  schemaVersion: 3,
+  enabled: true,
+  groupingRules: [{ pattern: 'https://example.com/*', group: 'Work' }],
+  duplicateRules: []
+};
+const input = (tabId = 1, timeStamp = 1): NavigationInput => ({
+  tabId, timeStamp, frameId: 0, url: 'https://example.com/', documentId: 'doc' + tabId,
+  documentLifecycle: 'active', transitionType: 'link', transitionQualifiers: [], kind: 'committed'
+});
+
+function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize(): Promise<void>; isReady(): boolean }) {
+  const tracker = createNavigationTracker();
+  let tabs = [
+    { id: 1, windowId: 10, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' },
+    { id: 2, windowId: 20, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' }
+  ];
+  let groups: { id: number; windowId: number; title?: string }[] = [];
+  const frames: number[] = [];
+  const mutations: number[] = [];
+  const removed: number[] = [];
+  let nextGroup = 3;
+  const port: ReplacementPort = {
+    removeTab: async id => {
+      removed.push(id);
+      tabs = tabs.filter(tab => tab.id !== id);
+      tracker.forget(id);
+    },
+    read: async () => ({ tabs, groups }),
+    readDocument: async tabId => {
+      frames.push(tabId);
+      if (tabId === 2 && !matchingFrames) return;
+      return { tabId, documentId: 'doc' + tabId, url: 'https://example.com/', documentLifecycle: 'active',
+        frameType: 'outermost_frame', parentFrameId: -1, errorOccurred: false };
+    },
+    moveTab: async () => { throw Error('unexpected detour'); },
+    ungroupTab: async () => { throw Error('unexpected ungroup'); },
+    groupTab: async (tabId, destination) => {
+      mutations.push(tabId);
+      const groupId = nextGroup++;
+      tabs = tabs.map(tab => tab.id === tabId ? { ...tab, groupId } : tab);
+      groups = [...groups, { id: groupId, windowId: destination.windowId, title: '' }];
+      return groupId;
+    },
+    setTitle: async (id, title) => {
+      groups = groups.map(group => group.id === id ? { ...group, title } : group);
+    }
+  };
+  let changed = () => {};
+  let read: () => Promise<unknown> = async () => raw;
+  const config = createConfigRepository({
+    read: () => read(), write: async () => {},
+    subscribe: listener => { changed = listener; return () => {}; }
+  });
+  const queue = createOperationQueue();
+  const diagnostics = createDiagnostics({ enabled: true });
+  const journal = createReplacementJournal({
+    storage: { read: async () => undefined, write: async () => {}, clear: async () => {} },
+    createOperationId: () => 'test'
+  });
+  const coordinator = createCoordinator({ tracker, config, queue, diagnostics,
+    ...(recovery ? { recovery } : {}),
+    consume: createPlacementConsumer({ tracker, port, journal, diagnostics })
+  });
+  return { coordinator, tracker, config, queue, port, frames, mutations, removed, diagnostics,
+    reload: (next: () => Promise<unknown>) => { read = next; changed(); }
+  };
 }
 it('production consumer owns no nested queue and configured grouping ignores unavailable overridden duplicate frame',async()=>{
   const f=fixture(enabled);await f.coordinator.handle(input());expect(f.mutations).toEqual([1]);expect(new Set(f.frames)).toEqual(new Set([1,2]));await f.coordinator.handle(input(1,2));expect(f.mutations).toEqual([1]);expect(f.diagnostics.snapshot().some(e=>e.code==='operation-failed')).toBe(false);
@@ -42,4 +100,44 @@ it('unrelated navigation invalidates the captured view while initial snapshot is
   const f=fixture(enabled);const started=deferred<void>();const gate=deferred<void>();const read=f.port.read;
   f.port.read=async()=>{started.resolve();await gate.promise;return read();};
   const pending=f.coordinator.handle(input());await started.promise;f.tracker.invalidate(999);gate.resolve();await pending;expect(f.mutations).toEqual([]);
+});
+
+
+it.each(['link', 'start_page'])('%s groups the live winner and removes exactly its older live duplicate', async transitionType => {
+  const f = fixture(enabled, true);
+  await f.coordinator.handle({ ...input(), transitionType });
+  expect(f.mutations).toEqual([1]);
+  expect(f.removed).toEqual([2]);
+  expect(new Set(f.frames)).toEqual(new Set([1, 2]));
+  const result = await f.port.read();
+  expect(result.tabs.map(tab => tab.id)).toEqual([1]);
+  expect(result.tabs[0]!.groupId).toBe(3);
+  expect(result.groups).toEqual([{ id: 3, windowId: 10, title: 'Work' }]);
+});
+
+it.each(['link', 'start_page'])('%s cannot mutate when disabled, recovery blocked, or snapshot stale', async transitionType => {
+  for (const guard of ['disabled', 'recovery', 'stale'] as const) {
+    const recovery = { initialize: async () => {}, isReady: () => guard !== 'recovery' };
+    const f = fixture(guard === 'disabled' ? { ...enabled, enabled: false } : enabled, true, recovery);
+    const entered = deferred<void>();
+    const gate = deferred<void>();
+    if (guard === 'stale') {
+      const read = f.port.read;
+      f.port.read = async () => {
+        entered.resolve();
+        await gate.promise;
+        return read();
+      };
+    }
+    const pending = f.coordinator.handle({ ...input(), transitionType });
+    if (guard === 'stale') {
+      await entered.promise;
+      f.tracker.invalidate(999);
+      gate.resolve();
+    }
+    await pending;
+    expect(f.mutations).toEqual([]);
+    expect(f.removed).toEqual([]);
+    expect((await f.port.read()).tabs.map(tab => tab.id)).toEqual([1, 2]);
+  }
 });

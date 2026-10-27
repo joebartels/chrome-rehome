@@ -8,7 +8,7 @@ function input(overrides: Partial<NavigationInput> = {}): NavigationInput {
 }
 
 describe('navigation eligibility and runtime ownership', () => {
-  it.each(['link', 'typed', 'auto_bookmark', 'generated', 'form_submit', 'keyword', 'keyword_generated'])
+  it.each(['link', 'typed', 'auto_bookmark', 'generated', 'form_submit', 'keyword', 'keyword_generated', 'start_page'])
   ('admits cold active %s commits and retains actual URL bytes', (transitionType) => {
     const tracker = createNavigationTracker();
     const event = tracker.observe(input({ transitionType, url: 'http://EXAMPLE.com:80/path?q=%2f#hash' }))!;
@@ -21,7 +21,7 @@ describe('navigation eligibility and runtime ownership', () => {
 
   it.each([
     { transitionType: 'reload', transitionQualifiers: ['from_address_bar'] },
-    { transitionType: 'start_page' }, { transitionType: undefined }, { transitionType: 'invented' },
+    { transitionType: undefined }, { transitionType: 'invented' },
     { transitionType: 'auto_subframe' }, { transitionType: 'manual_subframe' },
     { transitionQualifiers: undefined }, { transitionQualifiers: ['unknown'] },
     { transitionQualifiers: Array<string>(1) },
@@ -97,6 +97,53 @@ describe('navigation eligibility and runtime ownership', () => {
     expect(tracker.observe(input({ url: 'https://example.com/final', transitionQualifiers: ['server_redirect'] })))
       .toMatchObject({ url: 'https://example.com/final' });
     expect(tracker.view().blockedTabIds).toEqual([]);
+  });
+
+  it('start_page redirects preserve final identity and provenance gates', () => {
+    const tracker = createNavigationTracker();
+    expect(tracker.observe(input({ transitionType: 'start_page', transitionQualifiers: ['client_redirect'] }))).toBeUndefined();
+    const committed = tracker.observe(input({ transitionType: 'start_page', timeStamp: 101 }))!;
+    expect(committed).toBeDefined();
+    expect(committed.url).toBe('https://example.com/path?query=one#section');
+    expect(tracker.isCurrent(committed)).toBe(true);
+    tracker.invalidate(7);
+    expect(tracker.observe(input({ transitionType: 'start_page', timeStamp: 102, documentId: 'final',
+      url: 'https://example.com/final', transitionQualifiers: ['client_redirect'] }))).toMatchObject({ url: 'https://example.com/final' });
+    const cold = createNavigationTracker();
+    expect(cold.observe(input({ transitionType: 'start_page', url: 'https://example.com/final',
+      transitionQualifiers: ['server_redirect'] }))).toMatchObject({ url: 'https://example.com/final' });
+  });
+
+  it('cold start_page history cannot bootstrap provenance', () => {
+    for (const kind of ['history', 'fragment'] as const) {
+      const tracker = createNavigationTracker();
+      expect(tracker.observe(input({ transitionType: 'start_page', kind }))).toBeUndefined();
+      expect(tracker.observe(input({ transitionType: 'start_page', kind, timeStamp: 101,
+        url: 'https://example.com/changed' }))).toBeUndefined();
+    }
+  });
+
+  it('reload after start_page still revokes provenance', () => {
+    const tracker = createNavigationTracker();
+    const event = tracker.observe(input({ transitionType: 'start_page' }))!;
+    expect(event).toBeDefined();
+    expect(tracker.observe(input({ transitionType: 'reload', timeStamp: 101 }))).toBeUndefined();
+    expect(tracker.isCurrent(event)).toBe(false);
+    for (const [index, kind] of (['history', 'fragment'] as const).entries()) {
+      expect(tracker.observe(input({ transitionType: 'start_page', kind, timeStamp: 102 + index,
+        url: 'https://example.com/changed#new' }))).toBeUndefined();
+    }
+    expect(tracker.observe(input({ transitionType: 'start_page', timeStamp: 104,
+      transitionQualifiers: ['client_redirect'] }))).toBeUndefined();
+  });
+
+  it.each([{ documentId: '' }, { documentLifecycle: 'prerender' }, { transitionQualifiers: ['unknown'] }])
+  ('invalid start_page metadata revokes admitted work: %j', change => {
+    const tracker = createNavigationTracker();
+    const event = tracker.observe(input())!;
+    expect(tracker.observe(input({ transitionType: 'start_page', timeStamp: 101, ...change }))).toBeUndefined();
+    expect(tracker.isCurrent(event)).toBe(false);
+    expect(tracker.view().blockedTabIds).toEqual([7]);
   });
 
   it('requires trusted provenance for client redirects across pending navigation', () => {

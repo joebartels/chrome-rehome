@@ -9,8 +9,8 @@ export type Navigation = CandidateNavigation & Readonly<{ kind: NavigationKind; 
 
 type Provenance = { documentId: string; href: string };
 type TabState = { fingerprint?: NavigationInput; provenance?: Provenance; navigation?: Navigation; blocked: boolean };
-const admitted = new Set(['link', 'typed', 'auto_bookmark', 'generated', 'form_submit', 'keyword', 'keyword_generated']);
-const known = new Set([...admitted, 'reload', 'start_page', 'auto_subframe', 'manual_subframe']);
+const admitted = new Set(['link', 'typed', 'auto_bookmark', 'generated', 'form_submit', 'keyword', 'keyword_generated', 'start_page']);
+const known = new Set([...admitted, 'reload', 'auto_subframe', 'manual_subframe']);
 const qualifiers = new Set(['client_redirect', 'server_redirect', 'forward_back', 'from_address_bar']);
 
 function nativeHref(value: string): string | undefined {

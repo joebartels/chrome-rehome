@@ -13,8 +13,8 @@ function deferred<T>() {
   return { promise, resolve };
 }
 const enabled = { schemaVersion: 3, enabled: true, groupingRules: [], duplicateRules: [] };
-function input(tabId = 7, timeStamp = 100): NavigationInput {
-  return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed', documentId: 'doc', documentLifecycle: 'active', transitionType: 'link', transitionQualifiers: [] };
+function createInput(tabId = 7, timeStamp = 100, transitionType = 'link'): NavigationInput {
+  return { tabId, frameId: 0, url: 'https://example.com/', timeStamp, kind: 'committed', documentId: 'doc', documentLifecycle: 'active', transitionType, transitionQualifiers: [] };
 }
 function setup(read = vi.fn<() => Promise<unknown>>(async () => enabled)) {
   const detach = vi.fn();
@@ -28,7 +28,8 @@ function setup(read = vi.fn<() => Promise<unknown>>(async () => enabled)) {
   return { coordinator, tracker, config, queue, read, consumed, consume, diagnostics, detach };
 }
 
-describe('navigation coordinator', () => {
+describe.each(['link', 'start_page'])('navigation coordinator (%s)', transitionType => {
+  const input = (tabId = 7, timeStamp = 100) => createInput(tabId, timeStamp, transitionType);
   it('shares one initialization and defers immediately arriving navigations until ready', async () => {
     const initial = deferred<unknown>();
     const fake = setup(vi.fn(() => initial.promise));
@@ -131,7 +132,8 @@ describe('navigation coordinator', () => {
 });
 
 
-describe('eligibility coordination races', () => {
+describe.each(['link', 'start_page'])('eligibility coordination races (%s)', transitionType => {
+  const input = (tabId = 7, timeStamp = 100) => createInput(tabId, timeStamp, transitionType);
   it.each(['reload', 'replace'] as const)('%s revokes an eligible observation synchronously during config loading', async (action) => {
     const initial = deferred<unknown>();
     const fake = setup(vi.fn(() => initial.promise));
@@ -174,5 +176,28 @@ it('captured consume context is revoked while a storage read remains unresolved'
   const repository=createConfigRepository({read:()=>reload?new Promise(done=>{release=done;}):Promise.resolve(enabled),write:async()=>{},subscribe:listener=>{notify=listener;return ()=>{};}});
   const gate=deferred<void>();const started=deferred<void>();let captured:{isCurrent():boolean}|undefined;
   const coordinator=createCoordinator({config:repository,tracker:createNavigationTracker(),queue:createOperationQueue(),diagnostics:createDiagnostics(),consume:async(_event,context)=>{captured=context;started.resolve();await gate.promise;}});
-  const pending=coordinator.handle(input());await started.promise;expect(captured!.isCurrent()).toBe(true);reload=true;notify();expect(captured!.isCurrent()).toBe(false);release(enabled);await Promise.resolve();await Promise.resolve();expect(captured!.isCurrent()).toBe(false);gate.resolve();await pending;
+  const pending=coordinator.handle(createInput());await started.promise;expect(captured!.isCurrent()).toBe(true);reload=true;notify();expect(captured!.isCurrent()).toBe(false);release(enabled);await Promise.resolve();await Promise.resolve();expect(captured!.isCurrent()).toBe(false);gate.resolve();await pending;
+});
+
+
+it.each(['link', 'start_page'])('cold %s waits for recovery readiness and stays blocked after failed recovery', async transitionType => {
+  for (const ready of [false, true]) {
+    const gate = deferred<void>();
+    const entered = deferred<void>();
+    const config = createConfigRepository({ read: async () => enabled, write: async () => {}, subscribe: () => () => {} });
+    const consumed: number[] = [];
+    const recovery = {
+      initialize: async () => { entered.resolve(); await gate.promise; },
+      isReady: () => ready
+    };
+    const coordinator = createCoordinator({ config, recovery, tracker: createNavigationTracker(),
+      queue: createOperationQueue(), diagnostics: createDiagnostics(),
+      consume: async event => { consumed.push(event.tabId); } });
+    const pending = coordinator.handle(createInput(7, 100, transitionType));
+    await entered.promise;
+    expect(consumed).toEqual([]);
+    gate.resolve();
+    await pending;
+    expect(consumed).toEqual(ready ? [7] : []);
+  }
 });
