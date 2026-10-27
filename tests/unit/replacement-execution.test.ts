@@ -134,3 +134,49 @@ it('a genuinely relaxed-equivalent passive URL change never authorizes closure',
   const changedUrl='https://example.com/?tracking=new';expect(identity.equivalent({url:navigation.url,incognito:false},{url:changedUrl,incognito:false})).toBe(true);
   f.boundary(async name=>{if(name==='journal:pending:remove'){f.change(s=>({...s,tabs:s.tabs.map(t=>t.id===3?{...t,url:changedUrl}:t)}));f.documents.set(3,doc(3,{url:changedUrl}));}});expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(plan,f.guard)).kind).toBe('stopped');expect(f.removed).toEqual([]);
 });
+
+
+it('fulfilled removal that relocates its target to another window stops before another close', async () => {
+  const f = fixture();
+  const remove = f.port.removeTab;
+  f.port.removeTab = async id => {
+    if (id !== 2) return remove(id);
+    f.calls.push('relocated-instead:' + id);
+    f.change(snapshot => ({
+      ...snapshot,
+      tabs: snapshot.tabs.map(tab => tab.id === id
+        ? { ...tab, windowId: 999, index: 0 }
+        : tab.windowId === 10 ? { ...tab, index: tab.index - 1 } : tab)
+    }));
+  };
+
+  const result = await execute(f);
+
+  expect(result).toMatchObject({ kind: 'stopped', removedTabIds: [], uncertainRemovalId: 2 });
+  expect(f.snapshot.tabs.find(tab => tab.id === 2)).toMatchObject({ windowId: 999 });
+  expect(f.calls).toEqual(['relocated-instead:2']);
+  expect(f.writes.some(value => value.removedTabIds.includes(2))).toBe(false);
+});
+
+it('a target present outside affected windows in the final verification snapshot remains uncertain', async () => {
+  const f = fixture();
+  const target = f.plan.duplicates.find(participant => participant.tab.id === 2)!.tab;
+  let restored = false;
+  f.boundary(async name => {
+    // The first post-remove snapshot was absent; expose the still-live target
+    // during the following document read, before the final bracket snapshot.
+    if (name !== 'document:1' || !f.removed.includes(2) || restored) return;
+    restored = true;
+    f.change(snapshot => ({
+      ...snapshot,
+      tabs: [...snapshot.tabs, { ...target, windowId: 999, index: 0 }]
+    }));
+  });
+
+  const result = await execute(f);
+
+  expect(restored).toBe(true);
+  expect(result).toMatchObject({ kind: 'stopped', removedTabIds: [], uncertainRemovalId: 2 });
+  expect(f.calls).toEqual(['remove:2']);
+  expect(f.writes.some(value => value.removedTabIds.includes(2))).toBe(false);
+});

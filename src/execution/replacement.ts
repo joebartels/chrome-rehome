@@ -40,6 +40,11 @@ export function createReplacementExecutor({ port, journal }: {
       // In particular, a new snapshot never rebases participant locations or survivor order.
       function validate(snapshot: PlacementSnapshot, receipt: PlacementSnapshot, absent: readonly number[]): void {
         if (!coherentSnapshot(snapshot)) throw invalid;
+        // Absence is global: a target moved outside the affected windows is still alive.
+        // Apply this to every bracket snapshot and the entire claimed removal prefix.
+        if (snapshot.tabs.some(tab => absent.includes(tab.id))) {
+          throw invalid;
+        }
         const expectedTabs = receipt.tabs.filter(tab => windows.has(tab.windowId) && !absent.includes(tab.id));
         const actualTabs = snapshot.tabs.filter(tab => windows.has(tab.windowId));
         if (actualTabs.length !== expectedTabs.length) throw invalid;
