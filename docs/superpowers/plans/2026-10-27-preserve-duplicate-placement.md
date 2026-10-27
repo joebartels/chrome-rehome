@@ -24,10 +24,10 @@
 
 ## Task1: Correct placement precedence and regression coverage
 
-- [ ] Write RED planner grouped/ungrouped conflicting-rule cases and required-anchor evidence cases in tests/unit/replacement.test.ts; browser conflict scenarios in replacement-placement.spec.ts.
-- [ ] Run focused Vitest and record missing-behavior failures.
-- [ ] Prioritize selected anchor in src/planning/replacement.ts; always include selected anchor in src/background/placement.ts frame reads. No executor changes.
-- [ ] Adapt override-specific tests/fixtures in placement.test.ts, replacement-execution.test.ts, placement-consumer.test.ts and browser recovery/external tests without losing phase/settlement coverage.
-- [ ] Clarify src/options/view.ts help and current README/architecture; record the explicit policy amendment without rewriting dated historical reports.
-- [ ] Run full Vitest/typecheck/build/package; focused production browser cases then complete browser suite/native cases. Resolve regressions with behavior-specific evidence.
-- [ ] Independent changeset review, fix/recheck findings, commit completion evidence, rebuild verified dist and pause before008.
+- [x] Write RED planner grouped/ungrouped conflicting-rule cases and required-anchor evidence cases in tests/unit/replacement.test.ts; browser conflict scenarios in replacement-placement.spec.ts.
+- [x] Run focused Vitest and record missing-behavior failures.
+- [x] Prioritize selected anchor in src/planning/replacement.ts; always include selected anchor in src/background/placement.ts frame reads. No executor changes.
+- [x] Adapt override-specific tests/fixtures in placement.test.ts, replacement-execution.test.ts, placement-consumer.test.ts and browser recovery/external tests without losing phase/settlement coverage.
+- [x] Clarify src/options/view.ts help and current README/architecture; record the explicit policy amendment without rewriting dated historical reports.
+- [x] Run full Vitest/typecheck/build/package; focused production browser cases then complete browser suite/native cases. Resolve regressions with behavior-specific evidence.
+- [x] Independent changeset review, fix/recheck findings, commit completion evidence, rebuild verified dist and pause before008.
