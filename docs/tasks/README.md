@@ -2,9 +2,9 @@
 
 Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
 
-Tasks 001–006 and 006a are implemented and locally verified. External-app compatibility (006a) completed on 2026-10-27; see [confirmed metadata, completion and Chrome trial](../reviews/2026-10-27-external-app-links-completion.md). Task 006 recoverable closure and stale-work protection completed on 2026-10-26; see [completion evidence and Chrome trial](../reviews/2026-10-26-recoverable-closure-completion.md). Work is paused before Task 007. Tasks 007–010 remain TODO. Hosted CI, Chrome 120/current-stable runtime compatibility, enabled-incognito/interactive manual trials and release/performance readiness remain unverified.
+Tasks 001–006 and 006a are implemented and locally verified. External-app compatibility (006a) completed on 2026-10-27; see [confirmed metadata, completion and Chrome trial](../reviews/2026-10-27-external-app-links-completion.md). Task 006 recoverable closure and stale-work protection completed on 2026-10-26; see [completion evidence and Chrome trial](../reviews/2026-10-26-recoverable-closure-completion.md). Task 007 editor implementation is locally verified and undergoing final review. Tasks 008–010 remain TODO. Hosted CI, Chrome 120/current-stable runtime compatibility, enabled-incognito/interactive manual trials and release/performance readiness remain unverified.
 
-The explicitly enabled production trial places the winning tab, retains its ID/history and closes older duplicates only after independent evidence, verified placement and fresh preconditions. A session journal quarantines ambiguous interrupted work and never replays old closure. Configuration defaults to disabled; manual setup is in the README. The editor and broader protections remain later tasks.
+The explicitly enabled production trial places the winning tab, retains its ID/history and closes older duplicates only after independent evidence, verified placement and fresh preconditions. A session journal quarantines ambiguous interrupted work and never replays old closure. Configuration defaults to disabled; the editor preserves activation, with manual trial activation setup in the README. The editor now supplies explicit saves and matching previews; broader protections remain later tasks.
 
 - [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — complete; depends on foundation
 - [002: Duplicate URL equivalence](todo/002-duplicate-url-equivalence.md) — complete; depends on foundation
@@ -13,7 +13,7 @@ The explicitly enabled production trial places the winning tab, retains its ID/h
 - [005: Replacement planning and placement](todo/005-replacement-planning-and-placement.md) — complete; depends on 001, 002, 003, 004
 - [006: Recoverable closure and stale-work protection](todo/006-recoverable-closure-and-stale-work-protection.md) — complete; depends on 005
 - [006a: External-app link compatibility](todo/006a-external-app-link-compatibility.md) — complete; depends on 004, 006
-- [007: Rule editor and matching preview](todo/007-rule-editor-and-matching-preview.md) — depends on 001, 002, 003
+- [007: Rule editor and matching preview](todo/007-rule-editor-and-matching-preview.md) — implementation verified, final review pending; depends on 001, 002, 003
 - [008: Pause controls and replacement protections](todo/008-pause-controls-and-replacement-protections.md) — depends on 006, 007
 - [009: Real-browser feature regression suite](todo/009-real-browser-feature-regression-suite.md) — depends on 006, 007, 008
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009
