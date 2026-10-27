@@ -4,7 +4,11 @@ Status: Complete — locally verified 2026-10-26; paused before Task006.
 
 Depends on: 001, 002, 003, 004
 
-## Outcome
+## 2026-10-27 policy amendment
+
+The user’s manual organization now takes precedence. An existing eligible duplicate supplies its group/window and position even when a grouping rule disagrees; rules apply only when there is no duplicate. The selected anchor always needs document evidence. Earlier Task005 completion text below records its original configured-override policy and is historical; see [the correction](007a-preserve-existing-placement.md).
+
+## Original outcome
 
 Build a pure plan: configured group overrides inherited duplicate group/location, which overrides the incoming location. Execute final placement directly without closing tabs yet.
 

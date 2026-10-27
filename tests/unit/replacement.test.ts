@@ -4,13 +4,22 @@ import { selectCandidates } from '../../src/planning/candidates';
 import { navigation, view, identity, tab, doc, decision } from '../fixtures/placement';
 
 describe('immutable replacement plan', () => {
-  it('configured destination wins without duplicate detour', () => {
-    const tabs = [tab(1,0), tab(2,0,{windowId:20,groupId:8}), tab(3,1,{groupId:3,url:'https://other.test/'})];
-    const groups = [{id:8,windowId:20,title:'Old'}, {id:3,windowId:10,title:'Work'}];
-    const plan = decision(tabs, groups, 'Work', [doc(1)]);
-    expect(plan).toMatchObject({kind:'place',destination:{kind:'existing',windowId:10,groupId:3,position:'end'}});
-    if (plan.kind === 'place') { expect(plan.anchorTabId).toBeUndefined(); expect(plan.duplicates[0]?.document).toBeUndefined(); expect(Object.isFrozen(plan.baseline.tabs[0])).toBe(true); }
-    expect(decision(tabs, [{id:8,windowId:20,title:'Old'},{id:3,windowId:10,title:'Other'}], 'Work', [doc(1)])).toMatchObject({destination:{kind:'new',windowId:10,title:'Work'}});
+  it.each([10, 20])('existing manual group wins over a conflicting rule in window %i', windowId => {
+    const tabs = windowId === 10
+      ? [tab(1,0), tab(2,1,{groupId:8}), tab(3,2,{groupId:3,url:'https://other.test/'})]
+      : [tab(1,0), tab(2,0,{windowId,groupId:8}), tab(3,1,{groupId:3,url:'https://other.test/'})];
+    const groups = [{id:8,windowId,title:'Group A'}, {id:3,windowId:10,title:'Group X'}];
+    const plan = decision(tabs, groups, 'Group X', [doc(1), doc(2)]);
+    expect(plan).toMatchObject({kind:'place',anchorTabId:2,destination:{kind:'existing',windowId,groupId:8,position:{afterTabId:2}}});
+    if (plan.kind === 'place') {
+      expect(plan.duplicates[0]?.document?.documentId).toBe('anchor');
+      expect(Object.isFrozen(plan.baseline.tabs[0])).toBe(true);
+    }
+    expect(decision(tabs, groups, 'Group X', [doc(1)])).toEqual({kind:'skip',reason:'unavailable-document'});
+    expect(decision(tabs, groups, 'Group X', [doc(1),doc(2,{documentLifecycle:'cached'})])).toEqual({kind:'skip',reason:'unavailable-document'});
+  });
+  it('an existing ungrouped duplicate stays ungrouped despite a matching group rule', () => {
+    expect(decision(undefined, [], 'Group X')).toMatchObject({kind:'place',anchorTabId:2,destination:{kind:'ungrouped',windowId:10,afterTabId:2}});
   });
   it('grouping-only uses the same eligible winner gate', () => {
     if (identity.kind !== 'ready') throw Error('rules');

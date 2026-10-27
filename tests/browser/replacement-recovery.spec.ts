@@ -276,8 +276,14 @@ async function phaseScenario(f: Trial, title?: string) {
   }, { winnerId: s.winnerId, oldId: s.oldId });
   const state = await tabs(f.options);
   expect(state.find(t => t.id === s.winnerId)!.windowId).not.toBe(state.find(t => t.id === s.oldId)!.windowId);
+  // Group/title phases require a lone winner now: duplicates inherit their live location.
+  const retainedIds = duplicateIds;
+  if (title !== undefined) {
+    await s.older.goto(origin + '/unrelated-older');
+    await passive.goto(origin + '/unrelated-passive');
+  }
   await config(f.options, title);
-  return { ...s, passive, duplicateIds };
+  return { ...s, passive, duplicateIds: title === undefined ? duplicateIds : [], retainedIds };
 }
 // Every entry below stops a real worker after an actual durable journal write in the fixture.
 const phases = [
@@ -360,7 +366,7 @@ for (const phase of [
       expect(await journal(f.options)).toEqual(raw);
     } else
       await expect.poll(() => journal(f.options)).toBeUndefined();
-    expect((await tabs(f.options)).filter(t => s.duplicateIds.includes(t.id!))).toHaveLength(2);
+    expect((await tabs(f.options)).filter(t => s.retainedIds.includes(t.id!))).toHaveLength(2);
     await evidence(info, 'phase-evidence', {
       phase,
       record: raw,
@@ -418,7 +424,7 @@ for (const fault of ['remove-reject', 'settled-write']) {
     await arm(f.options, 'never', fault);
     await s.winner.getByRole('link').click();
     await done(f.options);
-    expect((await tabs(f.options)).filter(t => s.duplicateIds.includes(t.id!))).toHaveLength(2);
+    expect((await tabs(f.options)).filter(t => s.retainedIds.includes(t.id!))).toHaveLength(2);
     if (fault === 'settled-write')
       expect((await journal(f.options) as ReplacementJournal).pending).not.toBeNull();
   }));
@@ -450,7 +456,7 @@ for (const phase of ['pending:move:4', 'settled:move:4', 'verified:move:4']) {
       expect(await journal(f.options)).toEqual(raw);
     } else
       await expect.poll(() => journal(f.options)).toBeUndefined();
-    expect((await tabs(f.options)).filter(t => s.duplicateIds.includes(t.id!))).toHaveLength(2);
+    expect((await tabs(f.options)).filter(t => s.retainedIds.includes(t.id!))).toHaveLength(2);
     expect((await tabs(f.options)).some(t => t.id === memberId)).toBe(true);
     await evidence(info, 'phase-evidence', {
       phase,

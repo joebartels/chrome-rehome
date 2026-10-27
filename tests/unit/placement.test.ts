@@ -41,16 +41,16 @@ describe('guarded placement executor',()=>{
     expect(result).toMatchObject({kind:'placed',windowId:20,groupId,index:3});
     expect(f.snapshot.tabs.map(t=>t.id).sort()).toEqual([1,2,3,4]); expect(f.snapshot.groups.some(g=>g.id===7)).toBe(false);
   });
-  it('configured destination wins without duplicate detour',async()=>{
+  it('existing manual destination wins over the configured group',async()=>{
     const f=setup([tab(1,0),tab(3,1,{groupId:3,url:'https://other.test/'}),tab(2,0,{windowId:20,groupId:8})],[{id:3,windowId:10,title:'Work'},{id:8,windowId:20}], 'Work');
-    expect(await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard)).toMatchObject({kind:'placed',windowId:10,groupId:3,index:1});
-    expect(f.calls).toEqual(['group','move:10:1']);
+    expect(await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard)).toMatchObject({kind:'placed',windowId:20,groupId:8,index:1});
+    expect(f.calls).toEqual(['move:20:1','group']);
   });
   it('no rule and no duplicate is unchanged with zero mutations',async()=>{
     const f=setup([tab(1,0)]); expect(await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard)).toMatchObject({kind:'unchanged'}); expect(f.calls).toEqual([]);
   });
   it.each(['read','document','ungroup','move','group','title'])('every await can revoke further mutation: %s',async(phase)=>{
-    const f=phase==='move'?setup([tab(1,0),tab(2,0,{windowId:20})]):setup([tab(1,0,{groupId:7}),tab(2,1)], [{id:7,windowId:10}], 'Work');
+    const f=phase==='move'?setup([tab(1,0),tab(2,0,{windowId:20})]):setup([tab(1,0,{groupId:7})], [{id:7,windowId:10}], 'Work');
     let hit=false; f.boundary(async(p)=>{if(p===phase&&!hit){hit=true; await Promise.resolve(); f.revoke();}});
     const result=await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard);
     expect(hit).toBe(true); expect(result.kind).toBe(f.calls.length?'failed':'skipped');

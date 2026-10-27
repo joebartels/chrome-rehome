@@ -29,10 +29,15 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
   const mutations: number[] = [];
   const removed: number[] = [];
   let nextGroup = 3;
+  function normalize() {
+    tabs = [...new Set(tabs.map(tab => tab.windowId))].flatMap(windowId =>
+      tabs.filter(tab => tab.windowId === windowId).sort((a,b) => a.index-b.index).map((tab,index) => ({...tab,index})));
+  }
   const port: ReplacementPort = {
     removeTab: async id => {
       removed.push(id);
       tabs = tabs.filter(tab => tab.id !== id);
+      normalize();
       tracker.forget(id);
     },
     read: async () => ({ tabs, groups }),
@@ -42,7 +47,15 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
       return { tabId, documentId: 'doc' + tabId, url: 'https://example.com/', documentLifecycle: 'active',
         frameType: 'outermost_frame', parentFrameId: -1, errorOccurred: false };
     },
-    moveTab: async () => { throw Error('unexpected detour'); },
+    moveTab: async (id,windowId,index) => {
+      mutations.push(id);
+      const winner = tabs.find(tab => tab.id === id)!;
+      const rest = tabs.filter(tab => tab.id !== id);
+      const destination = rest.filter(tab => tab.windowId === windowId).sort((a,b) => a.index-b.index);
+      destination.splice(index,0,{...winner,windowId,groupId:winner.windowId === windowId ? winner.groupId : -1});
+      tabs = [...rest.filter(tab => tab.windowId !== windowId),...destination.map((tab,index) => ({...tab,index}))];
+      normalize();
+    },
     ungroupTab: async () => { throw Error('unexpected ungroup'); },
     groupTab: async (tabId, destination) => {
       mutations.push(tabId);
@@ -75,8 +88,8 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
     reload: (next: () => Promise<unknown>) => { read = next; changed(); }
   };
 }
-it('production consumer owns no nested queue and configured grouping ignores unavailable overridden duplicate frame',async()=>{
-  const f=fixture(enabled);await f.coordinator.handle(input());expect(f.mutations).toEqual([1]);expect(new Set(f.frames)).toEqual(new Set([1,2]));await f.coordinator.handle(input(1,2));expect(f.mutations).toEqual([1]);expect(f.diagnostics.snapshot().some(e=>e.code==='operation-failed')).toBe(false);
+it('a matching rule cannot bypass unavailable existing duplicate evidence',async()=>{
+  const f=fixture(enabled);await f.coordinator.handle(input());expect(f.mutations).toEqual([]);expect(new Set(f.frames)).toEqual(new Set([1,2]));await f.coordinator.handle(input(1,2));expect(f.mutations).toEqual([]);expect(f.diagnostics.snapshot().some(e=>e.code==='operation-failed')).toBe(false);
 });
 it.each([undefined,{...enabled,enabled:false},{}])('disabled or unavailable skips %j',async(raw)=>{const f=fixture(raw);await f.coordinator.handle(input());expect(f.mutations).toEqual([]);});
 it('pending config reload revokes published enabled state and running captured context',async()=>{
@@ -91,10 +104,10 @@ it('latest eligible callback wins before queued consumer starts',async()=>{
   gate.resolve();await Promise.all([blocked,old,newer]);expect(f.mutations).toEqual([2]);
 });
 it('native promise settlement retains the sole queue before a later placement can start',async()=>{
-  const f=fixture(enabled);await f.coordinator.initialize();const started=deferred<void>();const gate=deferred<void>();const native=f.port.groupTab;
+  const f=fixture(enabled);await f.coordinator.initialize();const started=deferred<void>();const gate=deferred<void>();const native=f.port.moveTab;
   f.port.readDocument=async tabId=>({tabId,documentId:'doc'+tabId,url:'https://example.com/',documentLifecycle:'active',frameType:'outermost_frame',parentFrameId:-1,errorOccurred:false});
-  f.port.groupTab=async(id,destination)=>{if(id===1){started.resolve();await gate.promise;}return native(id,destination);};
-  const first=f.coordinator.handle(input());await started.promise;const second=f.coordinator.handle(input(2,2));await Promise.resolve();expect(f.mutations).toEqual([]);gate.resolve();await Promise.all([first,second]);expect(f.mutations).toEqual([1,2]);expect((await f.port.read()).groups).toEqual([{id:3,windowId:10,title:''},{id:4,windowId:20,title:'Work'}]);
+  f.port.moveTab=async(id,windowId,index)=>{if(id===1){started.resolve();await gate.promise;}return native(id,windowId,index);};
+  const first=f.coordinator.handle(input());await started.promise;const second=f.coordinator.handle(input(2,2));await Promise.resolve();expect(f.mutations).toEqual([]);gate.resolve();await Promise.all([first,second]);expect(f.mutations).toEqual([1,2]);expect((await f.port.read()).groups).toEqual([]);
 });
 it('unrelated navigation invalidates the captured view while initial snapshot is deferred',async()=>{
   const f=fixture(enabled);const started=deferred<void>();const gate=deferred<void>();const read=f.port.read;
@@ -103,7 +116,7 @@ it('unrelated navigation invalidates the captured view while initial snapshot is
 });
 
 
-it.each(['link', 'start_page'])('%s groups the live winner and removes exactly its older live duplicate', async transitionType => {
+it.each(['link', 'start_page'])('%s inherits the ungrouped location despite a rule and removes exactly its older live duplicate', async transitionType => {
   const f = fixture(enabled, true);
   await f.coordinator.handle({ ...input(), transitionType });
   expect(f.mutations).toEqual([1]);
@@ -111,8 +124,9 @@ it.each(['link', 'start_page'])('%s groups the live winner and removes exactly i
   expect(new Set(f.frames)).toEqual(new Set([1, 2]));
   const result = await f.port.read();
   expect(result.tabs.map(tab => tab.id)).toEqual([1]);
-  expect(result.tabs[0]!.groupId).toBe(3);
-  expect(result.groups).toEqual([{ id: 3, windowId: 10, title: 'Work' }]);
+  expect(result.tabs[0]!.groupId).toBe(-1);
+  expect(result.tabs[0]!.windowId).toBe(20);
+  expect(result.groups).toEqual([]);
 });
 
 it.each(['link', 'start_page'])('%s cannot mutate when disabled, recovery blocked, or snapshot stale', async transitionType => {

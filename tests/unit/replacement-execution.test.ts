@@ -36,12 +36,12 @@ describe('journaled replacement', () => {
     expect(f.stored).toBeUndefined();
   });
 
-  it.each(['missing', 'error', 'inactive', 'subframe'])('passive %s evidence preserves configured placement and prevents all closure', async (kind) => {
-    const f = fixture([tab(1, 0), tab(2, 0, { windowId: 20 })], [], 'Work');
+  it.each(['missing', 'error', 'inactive', 'subframe'])('passive %s evidence preserves inherited placement and prevents all closure', async (kind) => {
+    const f = fixture([tab(2, 0, {groupId:8}), tab(1, 1), tab(3, 0, {windowId:20})], [{id:8,windowId:10,title:'Manual'}], 'Work');
     if (kind === 'missing')
-      f.documents.delete(2);
+      f.documents.delete(3);
     else
-      f.documents.set(2, doc(2, kind === 'error'
+      f.documents.set(3, doc(3, kind === 'error'
         ? { errorOccurred: true }
         : kind === 'inactive' ? { documentLifecycle: 'cached' } : { frameType: 'sub_frame' }));
     expect(await execute(f)).toMatchObject({
@@ -50,21 +50,21 @@ describe('journaled replacement', () => {
       closure: 'ineligible',
       removedTabIds: []
     });
-    expect(f.calls).toEqual(['group', 'title']);
+    expect(f.calls).toEqual(['group']);
   });
 
-  it('known shared passive group remains closure ineligible while configured grouping proceeds', async () => {
-    const f = fixture([tab(1, 0), tab(2, 0, { windowId: 20, groupId: 8 })], [{ id: 8, windowId: 20, shared: true }], 'Work');
+  it('known shared passive group remains closure ineligible while inherited grouping proceeds', async () => {
+    const f = fixture([tab(2,0,{groupId:8}),tab(1,1),tab(3,0,{windowId:20,groupId:9})], [{id:8,windowId:10,title:'Manual'},{id:9,windowId:20,shared:true}], 'Work');
     expect(await execute(f)).toMatchObject({ kind: 'completed', closure: 'ineligible' });
-    expect(f.calls).toEqual(['group', 'title']);
+    expect(f.calls).toEqual(['group']);
   });
 
   it('unavailable passive document rejection is closure ineligible, while winner or anchor failure stops placement', async () => {
-    const f = fixture([tab(1, 0), tab(2, 0, { windowId: 20 })], [], 'Work');
+    const f = fixture([tab(2, 0, {groupId:8}), tab(1, 1), tab(3, 0, {windowId:20})], [{id:8,windowId:10,title:'Manual'}], 'Work');
     const read = f.port.readDocument;
-    f.port.readDocument = id => id === 2 ? Promise.reject(Error('unavailable')) : read(id);
+    f.port.readDocument = id => id === 3 ? Promise.reject(Error('unavailable')) : read(id);
     expect(await execute(f)).toMatchObject({ kind: 'completed', closure: 'ineligible' });
-    expect(f.calls).toEqual(['group', 'title']);
+    expect(f.calls).toEqual(['group']);
     const winner = fixture();
     winner.documents.delete(1);
     expect((await execute(winner)).kind).toBe('stopped');
@@ -199,7 +199,7 @@ describe('journaled replacement', () => {
         undefined,
         ['ungroup', 'move', 'group']
       ],
-      [[tab(1, 0), tab(2, 0, { windowId: 20 })], [], 'Work', ['group', 'title']],
+      [[tab(1, 0)], [], 'Work', ['group', 'title']],
       [[tab(1, 0), tab(2, 1)], [], undefined, ['move']]
     ] as const) {
       for (const kind of kinds) {
@@ -479,11 +479,12 @@ it('competing winner while a remove is pending stays stale after our delayed eve
 
 it.each(['title', 'color', 'shared', 'survivor-order'])('passive-window %s changes during placement cannot become a fresh closure receipt', async (change) => {
   const f = fixture([
-    tab(1, 0),
-    tab(2, 0, { windowId: 20, groupId: 8 }),
+    tab(2,0,{groupId:7}),
+    tab(1,1),
+    tab(3,0,{windowId:20,groupId:8}),
     tab(8, 1, { windowId: 20, url: 'https://other.test/' }),
     tab(9, 2, { windowId: 20, url: 'https://else.test/' })
-  ], [{ id: 8, windowId: 20, title: 'Original' }], 'Work');
+  ], [{id:7,windowId:10,title:'Manual'},{ id: 8, windowId: 20, title: 'Original' }], 'Work');
   f.boundary(async (name) => {
     if (name !== 'native:group')
       return;

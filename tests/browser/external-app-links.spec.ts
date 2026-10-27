@@ -71,11 +71,20 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
     await config(options, finalUrl, false);
     const older = await context.newPage();
     await older.goto(finalUrl);
-    const before = await tabs();
+    let before = await tabs();
     const oldId = before.find(tab => tab.url === finalUrl)!.id!;
     expect(before.find(tab => tab.id === oldId)!.groupId).toBe(-1);
     const disabled = name === 'disabled HTTPS control';
-    if (!disabled) await config(options, finalUrl, true);
+    let manualGroupId = -1;
+    if (!disabled) {
+      manualGroupId = await options.evaluate(async id => {
+        const groupId = await chrome.tabs.group({tabIds:[id],createProperties:{windowId:(await chrome.tabs.get(id)).windowId}});
+        await chrome.tabGroups.update(groupId,{title:'Manual'});
+        return groupId;
+      },oldId);
+      before = await tabs();
+      await config(options, finalUrl, true); // Conflicting rule still requests External.
+    }
 
     const cdp = await context.newCDPSession(options);
     const versions = new Map<string, { versionId: string; scriptURL: string; runningStatus: string }>();
@@ -120,7 +129,8 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
         }).toEqual({ grouped: true, oldClosed: true });
         const survivor = (await tabs()).find(tab => tab.id === survivorId)!;
         expect(survivor.url).toBe(finalUrl);
-        expect(await options.evaluate(id => chrome.tabGroups.get(id).then(group => group.title), survivor.groupId)).toBe('External');
+        expect(survivor.groupId).toBe(manualGroupId);
+        expect(await options.evaluate(id => chrome.tabGroups.get(id).then(group => group.title), survivor.groupId)).toBe('Manual');
       }
       const expectedIds = [...before.map(tab => tab.id!), survivorId].filter(id => disabled || id !== oldId).sort((a, b) => a - b);
       expect((await tabs()).map(tab => tab.id!).sort((a, b) => a - b)).toEqual(expectedIds);
@@ -146,7 +156,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
 }
 
 for (const name of cases) {
-  const outcome = name === 'disabled HTTPS control' ? 'retains both tabs ungrouped' : 'groups survivor and closes older duplicate';
+  const outcome = name === 'disabled HTTPS control' ? 'retains both tabs ungrouped' : 'inherits manual group and closes older duplicate';
   test(`native external ${name} ${outcome}`, async ({}, testInfo) => {
     test.skip(process.platform !== 'darwin', 'Requires macOS LaunchServices and a bundled Chromium app.');
     await runNativeCase(name, testInfo);

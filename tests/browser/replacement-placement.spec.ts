@@ -101,7 +101,7 @@ for (const direction of ['before', 'after'] as const)
       if (direction === 'after') await chrome.tabs.move(anchorId, { index: 0 });
     }, { winnerId, anchorId, direction });
     const before = await tabs(options);
-    await config(options);
+    await config(options, 'Work');
     await winner.getByRole('link').click();
     await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
     const expectedIndex = before.find(t => t.id === anchorId)!.index - (before.find(t => t.id === winnerId)!.index < before.find(t => t.id === anchorId)!.index ? 1 : 0);
@@ -151,7 +151,7 @@ for (const grouped of [false, true])
       }, { memberId, groupId: setup.groupId });
     }
     const original = (await tabs(options)).map(t => t.id!);
-    await config(options);
+    await config(options, 'Work');
     await winner.getByRole('link').click();
     await expect.poll(async () => {
       const t = (await tabs(options)).find(t => t.id === winnerId)!;
@@ -184,15 +184,17 @@ for (const grouped of [false, true])
     expect(winner.url()).toBe(origin + '/before');
   }));
 
-test('production configured override stays in incoming window and appends to collapsed group', async ({}, testInfo) => fixture(async (context, options) => {
+for (const crossWindow of [false, true])
+  test(`production preserves manual Group A over Group X rule, crossWindow=${crossWindow}`, async ({}, testInfo) => fixture(async (context, options) => {
   const anchor = await context.newPage();
   await anchor.goto(origin + '/target');
   const anchorId = await id(options, anchor);
-  await options.evaluate(async (id) => {
-    const moved = await chrome.windows.create({ tabId: id });
-    const g = await chrome.tabs.group({ tabIds: [id], createProperties: { windowId: moved!.id! } });
-    await chrome.tabGroups.update(g, { title: 'Old' });
-  }, anchorId);
+  const inherited = await options.evaluate(async ({id,crossWindow}) => {
+    const windowId = crossWindow ? (await chrome.windows.create({tabId:id}))!.id! : (await chrome.tabs.get(id)).windowId;
+    const groupId = await chrome.tabs.group({tabIds:[id],createProperties:{windowId}});
+    await chrome.tabGroups.update(groupId,{title:'Group A'});
+    return {windowId,groupId};
+  }, {id:anchorId,crossWindow});
   const member = await context.newPage();
   await member.goto(origin + '/member');
   const memberId = await id(options, member);
@@ -200,7 +202,7 @@ test('production configured override stays in incoming window and appends to col
     const ownWindow = (await chrome.tabs.query({ url: chrome.runtime.getURL('options/index.html') }))[0]!.windowId;
     await chrome.tabs.move(id, { windowId: ownWindow, index: -1 });
     const groupId = await chrome.tabs.group({ tabIds: [id], createProperties: { windowId: ownWindow } });
-    await chrome.tabGroups.update(groupId, { title: 'Work', collapsed: true });
+    await chrome.tabGroups.update(groupId, { title: 'Group X', collapsed: true });
     return { groupId, windowId: (await chrome.tabs.get(id)).windowId };
   }, memberId);
   const winner = await context.newPage();
@@ -211,27 +213,32 @@ test('production configured override stays in incoming window and appends to col
     await chrome.tabs.update(memberId, { active: true });
   }, { winnerId, memberId, windowId: target.windowId });
   expect((await tabs(options)).find(t => t.id === winnerId)!.active).toBe(false);
-  expect((await tabs(options)).find(t => t.id === anchorId)!.windowId).not.toBe(target.windowId);
+  expect(inherited.windowId === target.windowId).toBe(!crossWindow);
+  const beforeNavigation = await tabs(options);
+  const anchorBefore = beforeNavigation.find(t => t.id === anchorId)!;
+  const winnerBefore = beforeNavigation.find(t => t.id === winnerId)!;
   const original = (await tabs(options)).map(t => t.id!);
-  await config(options, 'Work');
+  await config(options, 'Group X');
   await winner.getByRole('link').click();
   await expect.poll(async () => {
     const t = (await tabs(options)).find(t => t.id === winnerId)!;
     return { windowId: t.windowId, groupId: t.groupId };
-  }).toEqual(target);
+  }).toEqual(inherited);
   await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
   const t = await tabs(options);
-  expect(t.find(t => t.id === winnerId)!.index).toBe(t.find(t => t.id === memberId)!.index + 1);
+  expect(t.find(t => t.id === winnerId)!.index).toBe(anchorBefore.index - (winnerBefore.windowId === anchorBefore.windowId && winnerBefore.index < anchorBefore.index ? 1 : 0));
+  expect(t.find(t => t.id === memberId)!.groupId).toBe(target.groupId);
+  expect(await options.evaluate(id => chrome.tabGroups.get(id).then(g => g.title), inherited.groupId)).toBe('Group A');
   await retain(options, original.filter(id => id !== anchorId));
   const native = {
     winner: (await tabs(options)).find(t => t.id === winnerId),
     target: await options.evaluate(id => chrome.tabGroups.get(id), target.groupId),
     windows: await options.evaluate(() => chrome.windows.getAll())
   };
-  const nativePath = testInfo.outputPath('native-background-override.json');
+  const nativePath = testInfo.outputPath('native-manual-placement.json');
   await writeFile(nativePath, JSON.stringify(native, null, 2));
-  await testInfo.attach('native-background-override', { path: nativePath, contentType: 'application/json' });
-  console.info('native background override', JSON.stringify(native));
+  await testInfo.attach('native-manual-placement', { path: nativePath, contentType: 'application/json' });
+  console.info('native manual placement', JSON.stringify(native));
   await winner.goBack();
   expect(winner.url()).toBe(origin + '/before');
 }));

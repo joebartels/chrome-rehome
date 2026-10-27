@@ -33,7 +33,7 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
       const groupTitle = grouping.match(selection.winner.url!)?.group;
       const ids = [
         selection.winner.id,
-        ...(groupTitle === undefined && selection.kind === 'selected' ? [selection.anchor.id] : [])
+        ...(selection.kind === 'selected' ? [selection.anchor.id] : [])
       ];
       const documents: PlacementDocument[] = [];
       for (const id of ids) {

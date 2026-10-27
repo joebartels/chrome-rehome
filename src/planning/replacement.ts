@@ -64,15 +64,15 @@ export function planReplacement(input: Readonly<{
     || checked.duplicates.some((tab,index) => !sameTab(tab,selection.duplicates[index]!))) return skip('state-changed');
   let destination: PlacementDestination = Object.freeze({kind:'unchanged'});
   let anchor: CandidateTab | undefined;
-  if (groupTitle !== undefined) {
+  if (checked.kind === 'selected') {
+    anchor = checked.anchor;
+    destination = anchor.groupId === -1 ? Object.freeze({kind:'ungrouped',windowId:anchor.windowId,afterTabId:anchor.id})
+      : Object.freeze({kind:'existing',windowId:anchor.windowId,groupId:anchor.groupId,position:Object.freeze({afterTabId:anchor.id})});
+  } else if (groupTitle !== undefined) {
     const result = planGroupDestination({tabId:checked.winner.id,windowId:checked.winner.windowId,incognito:checked.winner.incognito,title:groupTitle},snapshot);
     if (result.kind === 'skip') return skip('state-changed');
     destination = result.destination.kind === 'new' ? Object.freeze({...result.destination})
       : Object.freeze({...result.destination,position:result.placement === 'already-grouped' ? 'keep' : 'end'});
-  } else if (checked.kind === 'selected') {
-    anchor = checked.anchor;
-    destination = anchor.groupId === -1 ? Object.freeze({kind:'ungrouped',windowId:anchor.windowId,afterTabId:anchor.id})
-      : Object.freeze({kind:'existing',windowId:anchor.windowId,groupId:anchor.groupId,position:Object.freeze({afterTabId:anchor.id})});
   }
   const relevant = [checked.winner.groupId, ...(anchor ? [anchor.groupId] : []), ...(destination.kind === 'existing' ? [destination.groupId] : [])];
   if (snapshot.groups.some(group => relevant.includes(group.id) && group.shared === true)) return skip('shared-group');
