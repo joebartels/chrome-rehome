@@ -2,11 +2,12 @@ import { test, expect, chromium, type BrowserContext, type Page, type TestInfo }
 import { execFile } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
 import { createServer as createHttpsServer } from 'node:https';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createExternalAppLauncher } from './external-app-launch';
+import { cleanupExternalAppTrial } from './external-app-cleanup';
 
 type NativeCase = 'warm HTTP' | 'warm HTTPS' | 'HTTP to HTTPS final identity' | 'stopped-worker HTTPS' | 'disabled HTTPS control';
 const cases: NativeCase[] = ['warm HTTP', 'warm HTTPS', 'HTTP to HTTPS final identity', 'stopped-worker HTTPS', 'disabled HTTPS control'];
@@ -29,6 +30,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
   let context: BrowserContext | undefined;
   let http: ReturnType<typeof createHttpServer> | undefined;
   let https: ReturnType<typeof createHttpsServer> | undefined;
+  let testFailed = false;
   try {
     launcher = await createExternalAppLauncher(chromium.executablePath());
     const key = join(root, 'key.pem');
@@ -91,15 +93,21 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
       await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('stopped');
       workerStatus.push('stopped');
     }
+    // Register before OS open: an existing duplicate or its initial load cannot satisfy this event.
+    const openedPage = context.waitForEvent('page');
     // The only external navigation operation is LaunchServices; no worker evaluation occurs here.
-    await launcher.open(launchUrl);
+    const [external] = await Promise.all([openedPage, launcher.open(launchUrl)]);
+    expect(external).not.toBe(older);
+    // waitForURL waits for the final navigation's load, rather than about:blank's initial load.
+    await external.waitForURL(finalUrl, { waitUntil: 'load' });
     await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('running');
     workerStatus.push('running-after-open');
     await expect.poll(async () => (await tabs()).filter(tab => tab.url === finalUrl && tab.id !== oldId).length).toBe(1);
     const survivorId = (await tabs()).find(tab => tab.url === finalUrl && tab.id !== oldId)!.id!;
     try {
       if (disabled) {
-        // Completed native load and a disabled repository provide a deterministic no-mutation control.
+        // Bounded retention observation after the external page's final load; portable guards
+        // establish deterministic no-mutation behavior through queue completion.
         await expect.poll(async () => (await tabs()).filter(tab => tab.url === finalUrl).map(tab =>
           ({ id: tab.id, groupId: tab.groupId })).sort((a, b) => a.id! - b.id!))
           .toEqual([{ id: oldId, groupId: -1 }, { id: survivorId, groupId: -1 }].sort((a, b) => a.id - b.id));
@@ -123,20 +131,17 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
         version: context.browser()?.version(),
         launch: ['/usr/bin/open', '-a', dirname(dirname(dirname(launcher.executablePath))), launchUrl],
         profile: join(root, 'profile'), finalUrl, before, oldId, survivorId, workerStatus,
+        externalPage: { url: external.url(), readyState: await external.evaluate(() => document.readyState) },
         after: await tabs(), groups: await options.evaluate(() => chrome.tabGroups.query({}))
       }, null, 2));
       await testInfo.attach('native-external-result', { path: evidencePath, contentType: 'application/json' });
       await cdp.detach();
     }
+  } catch (error) {
+    testFailed = true;
+    throw error;
   } finally {
-    await context?.close();
-    for (const server of [http, https]) {
-      if (!server) continue;
-      server.closeAllConnections();
-      await new Promise<void>(done => server.close(() => done()));
-    }
-    await launcher?.dispose();
-    await rm(root, { recursive: true, force: true });
+    await cleanupExternalAppTrial({ context, servers: [http, https], launcher, profileRoot: root }, testFailed);
   }
 }
 
@@ -147,4 +152,3 @@ for (const name of cases) {
     await runNativeCase(name, testInfo);
   });
 }
-
