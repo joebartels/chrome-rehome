@@ -14,10 +14,9 @@ export function createRecovery({ journal, port }: {
           const record = await journal.load();
           if (record.kind === 'invalid' || record.kind === 'valid' && record.value.pending !== null) return;
           if (record.kind === 'valid') {
-            const snapshot = await port.read();
-            // Presence is an observation only; matching document/tab IDs never authorize replay.
-            const liveIds = new Set(snapshot.tabs.map(tab => tab.id));
-            record.value.participants.map(participant => liveIds.has(participant.tabId));
+            // Snapshot success is the read-only reconciliation gate before clear.
+            // Participant presence never authorizes replay.
+            await port.read();
             await journal.clear();
           }
           ready = !journal.isBlocked();

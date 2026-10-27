@@ -45,7 +45,7 @@ Listeners register synchronously before configuration/recovery initialization. C
 | Session record | Startup action |
 | --- | --- |
 | Missing | Ready after a successful read. |
-| Valid, pending null, any settled/nonterminal/terminal phase | Read one live snapshot for participant presence observation, discard old work, clear record, then ready. No replay. Read/clear failure blocks. |
+| Valid, pending null, any settled/nonterminal/terminal phase | Await one read-only live snapshot as the reconciliation gate, discard old work, clear record, then ready. Participant presence never authorizes replay. Read/clear failure blocks. |
 | Valid, pending native mutation | Preserve record and quarantine all automatic mutation for this storage session. Matching IDs, absence, late events, time, config toggles and worker restarts cannot prove settlement. |
 | Malformed, future version or unreadable storage | Preserve contents without overwrite/migration/clear and quarantine all automatic mutation. |
 

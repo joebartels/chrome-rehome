@@ -116,7 +116,7 @@ Recovery runs even for disabled, unavailable or future config; it never changes 
 | Session record | Startup action |
 |---|---|
 | Missing | Ready after successful read. |
-| Valid, `pending:null`, any completed/abandoned/nonterminal phase | Read live snapshot once; classify participant presence against recorded native IDs as observation only; discard the old plan, clear record, then ready. Any read/clear failure blocks. Never close because a record says `placed`. |
+| Valid, `pending:null`, any completed/abandoned/nonterminal phase | Await one read-only live snapshot as the reconciliation gate; discard the old plan, clear record, then ready. Participant presence never authorizes replay. Any read/clear failure blocks. Never close because a record says `placed`. |
 | Valid, pending mutation | Preserve record and quarantine **all** automatic mutations for the remainder of that storage session. A fresh snapshot, missing tab, delayed event, config toggle, timeout or worker restart cannot establish settlement. |
 | Malformed, unknown/future version, storage failure | Preserve data and quarantine all automatic mutations; no overwrite/migration/clear. |
 
