@@ -52,6 +52,8 @@ test('loads, preserves tabs and groups through navigation, and revives a termina
   const storedBytes = await options.evaluate(async () => JSON.stringify((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig));
   expect(JSON.parse(storedBytes)).toEqual(validV3);
   await expect(options.getByRole('status')).toContainText('enabled');
+  await expect(options.getByRole('status')).toContainText('Older duplicate tabs may close after verified placement.');
+  await expect(options.getByRole('status')).toContainText('Interrupted operations may pause processing until Chrome restarts.');
   await options.reload();
   await expect(options.getByRole('status')).toContainText('enabled');
   await expect(options.getByRole('status')).toHaveAttribute('data-severity', 'info');

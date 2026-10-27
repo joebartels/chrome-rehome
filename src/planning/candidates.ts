@@ -7,7 +7,7 @@ export type NavigationView = Readonly<{
 }>;
 export type CandidateTab = Readonly<{
   id: number; windowId: number; index: number; groupId: number; pinned: boolean; incognito: boolean;
-  url?: string; pendingUrl?: string;
+  url?: string; pendingUrl?: string | undefined;
 }>;
 export type DuplicateIdentity = Readonly<{
   identify(candidate: { url: string; incognito: boolean }): string | undefined;

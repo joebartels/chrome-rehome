@@ -10,7 +10,7 @@ export type TabSnapshot = Readonly<{
   audible: boolean;
   incognito: boolean;
   url?: string;
-  pendingUrl?: string;
+  pendingUrl?: string | undefined;
 }>;
 
 export type GroupSnapshot = Readonly<{
@@ -51,7 +51,7 @@ export function createSnapshotReader(api: Pick<typeof chrome, 'tabs' | 'tabGroup
             audible: tab.audible ?? false,
             incognito: tab.incognito,
             ...(tab.url === undefined ? {} : { url: tab.url }),
-            ...(tab.pendingUrl === undefined ? {} : { pendingUrl: tab.pendingUrl }),
+            ...('pendingUrl' in tab ? { pendingUrl: tab.pendingUrl } : {}),
           })),
         groups: groups.filter((group) => selectedWindows.has(group.windowId)).map((group) => ({
           id: group.id,

@@ -106,3 +106,13 @@ it('a rejected native promise remains awaited and retains the original cause',as
   f.port.moveTab=async()=>{started.resolve();await gate.promise;throw cause;};
   const pending=createPlacementExecutor({port:f.port}).execute(f.plan,f.guard).then(r=>{settled=true;return r;});await started.promise;f.revoke();await Promise.resolve();expect(settled).toBe(false);gate.resolve();const result=await pending;expect(result).toMatchObject({kind:'failed',phase:'move',effects:[{outcome:'uncertain'}]});if(result.kind==='failed')expect(result.cause).toBe(cause);
 });
+
+it('placement returns detached frozen final observation receipt',async()=>{
+  const f=setup();const result=await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard);if(result.kind!=='placed'&&result.kind!=='unchanged')throw Error('not placed');expect(result.snapshot).toEqual(f.snapshot);expect(result.snapshot).not.toBe(f.snapshot);expect(Object.isFrozen(result.snapshot)).toBe(true);expect(Object.isFrozen(result.snapshot.tabs)).toBe(true);expect(Object.isFrozen(result.snapshot.tabs[0])).toBe(true);
+});
+it('checkpoint awaits pending then repeats full preflight before every native call',async()=>{
+  const f=setup();let before=false;const checkpoints={beforeMutation:async()=>{before=true;f.change(s=>({...s,tabs:s.tabs.map(t=>t.id===2?Object.defineProperty({...t},'pendingUrl',{value:undefined,enumerable:true}):t)}));},afterSettlement:async()=>{},afterVerification:async()=>{}};expect((await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard)).kind).toBe('skipped');expect(before).toBe(true);expect(f.calls).toEqual([]);
+});
+it('afterSettlement runs on native rejection and cannot replace original rejection',async()=>{
+  const f=setup();const cause={native:true};f.port.moveTab=async()=>{throw cause;};let settled=false;const checkpoints={beforeMutation:async()=>{},afterSettlement:async()=>{settled=true;throw Error('bookkeeping');},afterVerification:async()=>{throw Error('unexpected');}};const result=await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard);expect(settled).toBe(true);expect(result.kind).toBe('failed');if(result.kind==='failed')expect(result.cause).toBe(cause);
+});

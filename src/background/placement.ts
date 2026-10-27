@@ -1,5 +1,6 @@
 import type { createDiagnostics } from '../diagnostics/diagnostics';
-import { createPlacementExecutor, type PlacementPort } from '../execution/placement';
+import { createReplacementExecutor, type ReplacementPort } from '../execution/replacement';
+import type { createReplacementJournal } from '../execution/journal';
 import { selectCandidates } from '../planning/candidates';
 import { planReplacement, type PlacementDocument } from '../planning/replacement';
 import { compileDuplicateRules } from '../rules/duplicates';
@@ -7,12 +8,13 @@ import { compileGroupingRules } from '../rules/grouping';
 import type { ConsumeContext } from './coordinator';
 import type { createNavigationTracker, Navigation } from './navigation';
 
-export function createPlacementConsumer({ tracker, port, diagnostics }: {
+export function createPlacementConsumer({ tracker, port, journal, diagnostics }: {
   tracker: ReturnType<typeof createNavigationTracker>;
-  port: PlacementPort;
+  port: ReplacementPort;
+  journal: ReturnType<typeof createReplacementJournal>;
   diagnostics: ReturnType<typeof createDiagnostics>;
 }): (event: Navigation, context: ConsumeContext) => Promise<void> {
-  const executor = createPlacementExecutor({ port });
+  const executor = createReplacementExecutor({ port, journal });
   return async (event, context) => {
     const view = tracker.view();
     const guard = {
@@ -50,8 +52,16 @@ export function createPlacementConsumer({ tracker, port, diagnostics }: {
         ...(groupTitle === undefined ? {} : { groupTitle })
       });
       if (plan.kind === 'skip' || !guard.isCurrent()) return;
-      const result = await executor.execute(plan, guard);
-      if (result.kind === 'failed') diagnostics.record({ code: 'operation-failed' });
+      const lease = tracker.createRemovalLease(view, plan.duplicates.map(participant => participant.tab.id));
+      try {
+        const result = await executor.execute(plan, {
+          isCurrent: () => context.isCurrent() && tracker.isCurrent(event) && lease.isCurrent() && !journal.isBlocked(),
+          expectRemoval: id => lease.expectRemoval(id)
+        });
+        if (result.kind === 'stopped') diagnostics.record({ code: 'operation-failed' });
+      } finally {
+        lease.dispose();
+      }
     } catch {
       diagnostics.record({ code: 'operation-failed' });
     }

@@ -43,6 +43,11 @@ export function createNavigationTracker() {
   let generation = 0;
   let observedSequence = 0;
   let exhausted = false;
+  type RemovalLease = { expectedRevision: number; disposed: boolean; allowed: Set<number>; issued: Set<number>; armed: Set<number> };
+  const removalLeases = new Set<RemovalLease>();
+  function leaseCurrent(lease: RemovalLease): boolean {
+    return !exhausted && !lease.disposed && lease.expectedRevision === revision;
+  }
   function advance(): boolean {
     if (exhausted || revision === Number.MAX_SAFE_INTEGER || generation === Number.MAX_SAFE_INTEGER
       || observedSequence === Number.MAX_SAFE_INTEGER) {
@@ -59,9 +64,15 @@ export function createNavigationTracker() {
     const previous = states.get(tabId);
     states.set(tabId, { blocked: true, ...(previous?.provenance ? { provenance: previous.provenance } : {}) });
   }
-  function forget(tabId: number): void {
-    if (!validId(tabId) || !advance()) return;
+  function forget(tabId: number, creditRemoval = true): void {
+    if (!validId(tabId)) return;
+    const credited = creditRemoval ? [...removalLeases].filter(lease => leaseCurrent(lease) && lease.issued.has(tabId)) : [];
+    if (!advance()) return;
     states.delete(tabId);
+    for (const lease of credited) {
+      lease.issued.delete(tabId);
+      ++lease.expectedRevision;
+    }
   }
   return {
     observe(input: NavigationInput): Navigation | undefined {
@@ -100,10 +111,26 @@ export function createNavigationTracker() {
       return navigation;
     },
     invalidate,
-    forget,
+    forget(tabId: number): void { forget(tabId); },
+    createRemovalLease(view: NavigationView, allowedDuplicateIds: readonly number[]) {
+      const lease: RemovalLease = { expectedRevision: view.revision,
+        disposed: exhausted || view.epoch !== epoch || view.revision !== revision,
+        allowed: new Set(allowedDuplicateIds), issued: new Set(), armed: new Set() };
+      removalLeases.add(lease);
+      return {
+        isCurrent(): boolean { return leaseCurrent(lease); },
+        expectRemoval(tabId: number): void {
+          if (!leaseCurrent(lease) || !lease.allowed.has(tabId) || lease.armed.has(tabId)) throw new Error('Invalid removal lease.');
+          lease.armed.add(tabId);
+          lease.issued.add(tabId);
+        },
+        dispose(): void { lease.disposed = true; removalLeases.delete(lease); }
+      };
+    },
     replace(addedTabId: number, removedTabId: number): void {
-      forget(removedTabId);
-      forget(addedTabId);
+      // Replacement events are never creditable native removal feedback.
+      forget(removedTabId, false);
+      forget(addedTabId, false);
       invalidate(addedTabId);
     },
     isCurrent(event: NavigationToken): boolean {

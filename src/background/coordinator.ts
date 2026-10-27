@@ -11,10 +11,11 @@ type Dependencies = {
   tracker: ReturnType<typeof createNavigationTracker>;
   queue: ReturnType<typeof createOperationQueue>;
   diagnostics: ReturnType<typeof createDiagnostics>;
+  recovery?: { initialize(): Promise<void>; isReady(): boolean };
   consume: (event: Navigation, context: ConsumeContext) => Promise<void>;
 };
 
-export function createCoordinator({ config, tracker, queue, diagnostics, consume }: Dependencies) {
+export function createCoordinator({ config, tracker, queue, diagnostics, consume, recovery }: Dependencies) {
   let state: ConfigState | undefined;
   let revision = 0;
   let disposed = false;
@@ -31,7 +32,7 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
 
   function initialize(): Promise<void> {
     if (disposed) return Promise.resolve();
-    initialization ??= config.load().then((loaded) => {
+    initialization ??= Promise.all([config.load(), queue.run(async () => { await recovery?.initialize(); })]).then(([loaded]) => {
       if (disposed) return;
       if (state === undefined) update(loaded);
       diagnostics.record({ code: 'worker-started' });
@@ -50,14 +51,14 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
       diagnostics.record({ code: 'navigation-observed', sequence: event.observedSequence, tabId: event.tabId });
       await initialize();
       await queue.run(async () => {
-        if (disposed || observedRevision !== revision || !tracker.isCurrent(event)
+        if (disposed || (recovery && !recovery.isReady()) || observedRevision !== revision || !tracker.isCurrent(event)
           || state?.kind !== 'ready' || !state.config.enabled) return;
         const captured = config.getCurrent();
         if (captured?.state !== state) return;
         const capturedRevision = revision;
         const context: ConsumeContext = Object.freeze({config:state.config,revision:captured.revision,isCurrent() {
           const current = config.getCurrent();
-          return !disposed && revision === capturedRevision && current?.revision === captured.revision
+          return !disposed && (!recovery || recovery.isReady()) && revision === capturedRevision && current?.revision === captured.revision
             && current.state === state && state?.kind === 'ready' && state.config.enabled && tracker.isCurrent(event);
         }});
         await consume(event, context);

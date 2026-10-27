@@ -192,3 +192,22 @@ describe('navigation eligibility and runtime ownership', () => {
     expect(tracker.view().revision).toBe(0);
   });
 });
+
+
+describe('expected removal credits',()=>{
+  it('accepts delayed issued events once while preserving winner identity',()=>{
+    const tracker=createNavigationTracker();const original=tracker.view();const lease=tracker.createRemovalLease(original,[2,3]);lease.expectRemoval(2);expect(lease.isCurrent()).toBe(true);lease.expectRemoval(3);tracker.forget(2);expect(lease.isCurrent()).toBe(true);tracker.forget(3);expect(lease.isCurrent()).toBe(true);tracker.forget(2);expect(lease.isCurrent()).toBe(false);
+  });
+  it.each(['unexpected','beforeNavigate','replacement-removed','replacement-added','competing'])('expected removal cannot revive a stale lease after %s',reason=>{
+    const tracker=createNavigationTracker();const original=tracker.view();const lease=tracker.createRemovalLease(original,[2,3]);lease.expectRemoval(2);
+    if(reason==='unexpected')tracker.forget(999);else if(reason==='beforeNavigate')tracker.invalidate(1);else if(reason==='replacement-removed')tracker.replace(4,2);else if(reason==='replacement-added')tracker.replace(2,4);else tracker.observe({tabId:3,frameId:0,url:'https://example.com/',timeStamp:1,documentId:'other',kind:'committed',documentLifecycle:'active',transitionType:'link',transitionQualifiers:[]});
+    expect(lease.isCurrent()).toBe(false);tracker.forget(2);expect(lease.isCurrent()).toBe(false);expect(()=>lease.expectRemoval(3)).toThrow();
+  });
+  it('disposed stale foreign winner and duplicate arms reject without refreshing view',()=>{
+    const tracker=createNavigationTracker();const view=tracker.view();const lease=tracker.createRemovalLease(view,[2]);expect(()=>lease.expectRemoval(1)).toThrow();expect(()=>lease.expectRemoval(9)).toThrow();lease.expectRemoval(2);expect(()=>lease.expectRemoval(2)).toThrow();lease.dispose();expect(lease.isCurrent()).toBe(false);expect(()=>lease.expectRemoval(2)).toThrow();tracker.invalidate(3);const stale=tracker.createRemovalLease(view,[2]);expect(stale.isCurrent()).toBe(false);expect(()=>stale.expectRemoval(2)).toThrow();
+  });
+});
+
+it('a future or otherwise stale original view cannot become current as revision advances',()=>{
+  const tracker=createNavigationTracker();const view=tracker.view();const lease=tracker.createRemovalLease({...view,revision:view.revision+1},[2]);expect(lease.isCurrent()).toBe(false);tracker.invalidate(9);expect(lease.isCurrent()).toBe(false);expect(()=>lease.expectRemoval(2)).toThrow();
+});

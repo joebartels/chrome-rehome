@@ -1,7 +1,12 @@
 # ChromeReHome
 
-Chrome Manifest V3 extension for an explicitly enabled replacement-placement trial. The real navigation consumer groups eligible tabs by configured rules or moves the existing winner immediately after a duplicate anchor, preserving history and retaining every original tab. Configuration defaults to disabled. There is no tab closure or rule editor. Tasks001–004 supply matching, destination resolution and navigation policy; Task005 connects production placement. Task006 recovery/closure and later UI/release work remain pending.
+**Pause your existing configuration before reloading this build; enabled mode can now close duplicate tabs.**
 
+Chrome Manifest V3 extension for an explicitly enabled replacement trial. Eligible navigation places the existing winning tab, preserves its ID/history, then sequentially closes older duplicates only after independent document checks and verified placement. Configured grouping overrides inherited location. A lone winner still groups normally. Configuration defaults to disabled; an already-enabled Task005 installation activates closure when this build loads. There is no rule editor. Task005's retain-all placement behavior is the previous phase; its historical evidence remains in the task/review documents.
+
+Interrupted operations can pause all automatic processing. A small session journal records settlement, never a replayable plan. Pending native calls, malformed/future records or failed journal storage quarantine work; toggling configuration, waiting or restarting the worker cannot establish settlement. A full browser restart is the reliable user-controlled reset for an ambiguous native call, followed by a fresh explicit trial. Extension disable/reload/update can also clear session storage, but does not prove an outstanding native call settled. Never erase the journal to force continuation.
+
+The trial has no unsaved-form protection and no transaction guarantee. Chrome has no atomic compare-document-and-close API; navigation can race the final check. Native calls are never retried, rolled back or released from the queue by a timeout. Previously verified removals remain removed if later work stops. At most 100 participants (winner plus 99 older duplicates) are allowed; larger selections skip all placement/closure without truncation. Missing passive document evidence retains all duplicates while otherwise-valid configured placement can still proceed. Use a disposable profile.
 ## Develop and load
 
 Use Node 24 LTS and npm. The declared browser floor is Chrome 120; release validation against Chrome 120 and current stable is still required. No UI framework is used.
@@ -24,7 +29,7 @@ Browser smoke tests use Playwright's bundled Chromium, isolated temporary profil
 
 ## Configuration and permissions
 
-`storage.local.chromeReHomeConfig` holds version 3 configuration: `{ "schemaVersion": 3, "enabled": false, "groupingRules": [], "duplicateRules": [] }`. Missing configuration uses this disabled default without writing it. Strict version 1 data (`schemaVersion` and boolean `enabled` only) migrates in memory with empty lists. Strict version 2 data preserves grouping rules exactly and adds empty duplicate rules. Loads never write, including migrations. Explicit repository saves accept valid version 1, 2 or 3 input and write canonical version 3. Invalid fields/rules and future-version data remain unchanged and produce an options-page error; processing stays disabled. Valid changes are observed through `storage.onChanged`. Configurations, rule arrays, records and ignored-name arrays are copied/frozen. The enabled field explicitly activates the guarded placement trial. No editing UI ships yet.
+`storage.local.chromeReHomeConfig` holds version 3 configuration: `{ "schemaVersion": 3, "enabled": false, "groupingRules": [], "duplicateRules": [] }`. Missing configuration uses this disabled default without writing it. Strict version 1 data (`schemaVersion` and boolean `enabled` only) migrates in memory with empty lists. Strict version 2 data preserves grouping rules exactly and adds empty duplicate rules. Loads never write, including migrations. Explicit repository saves accept valid version 1, 2 or 3 input and write canonical version 3. Invalid fields/rules and future-version data remain unchanged and produce an options-page error; processing stays disabled. Valid changes are observed through `storage.onChanged`. Configurations, rule arrays, records and ignored-name arrays are copied/frozen. The enabled field explicitly activates guarded placement and duplicate closure. No editing UI ships yet.
 
 `compileGroupingRules(raw)` in `src/rules/grouping.ts` validates ordered `{ pattern, group }` rules and returns either `{ kind: 'ready', rules, match(url) }` or `{ kind: 'invalid', message, ruleIndex? }` (zero-based index). Reuse the compiled result across calls; `match` returns the first matching frozen rule or `undefined`. Validation is atomic. Native `URLPattern` performs matching with explicit URL components and escaped literal syntax; no matcher dependency or runtime polyfill is used. Node 24 and the declared Chrome 120 floor provide this API.
 
@@ -57,7 +62,7 @@ const result = await groups.place({ tabId: 1, windowId: 10, incognito: false, ti
 
 Use live concrete IDs and actual browsing context. Retain one service and dedicated shared grouping queue per worker. This queue must differ from an outer coordinator queue whose active job awaits `place`; nesting on the same queue deadlocks. The production placement consumer reuses the pure resolver and native adapter methods directly; it does not call this queued service.
 
-The service validates requests, reads/plans twice, groups an actual tab, and verifies membership/title. Pinned tabs skip. A new group gets only the configured title; existing attributes are never explicitly updated, although Chrome may expand/reposition a group. Results expose `placed`, `skipped`, or `failed` with original cause, stage and known effect (`not-started`, `uncertain`, `grouped`, `titled`). Failed mutations are not retried or rolled back, and title failure can leave an unnamed group. Serialization includes final verification but cannot coordinate other service instances, external actors or restarts. Success is an observation; the production placement executor separately provides document/view/config freshness checks. Closure still requires Task006.
+The service validates requests, reads/plans twice, groups an actual tab, and verifies membership/title. Pinned tabs skip. A new group gets only the configured title; existing attributes are never explicitly updated, although Chrome may expand/reposition a group. Results expose `placed`, `skipped`, or `failed` with original cause, stage and known effect (`not-started`, `uncertain`, `grouped`, `titled`). Failed mutations are not retried or rolled back, and title failure can leave an unnamed group. Serialization includes final verification but cannot coordinate other service instances, external actors or restarts. Success is an observation; the production placement executor separately provides document/view/config freshness checks. The replacement executor supplies independent closure evidence and session recovery around production placement.
 
 A separate temporary browser extension fixture tests real grouping without adding a production endpoint or changing the five-file package. Tests record Chromium version and incognito capability; the fixture's default lack of incognito access leaves the disposable-profile manual check in Task 003 unautomated. Chrome 120/current stable release checks also remain.
 
@@ -68,16 +73,26 @@ Task 004 adds conservative metadata/document-provenance eligibility and pure det
 
 **Chrome metadata does not prove human intent or detect every restored-page script.** An unqualified script navigation reported as ordinary `link` can qualify even after reload or cold worker start; the actual Chromium restart probe recorded that admission. Rejection of cold `client_redirect` applies when Chrome supplies that qualifier. Cold SPA/hash changes, ambiguous external launches reported as `start_page`, canceled navigation and some prerender swaps remain deliberate false negatives. Actual metadata traces and bounded capability probes accompany disposable browser tests; restore/reopen, trusted omnibox/external-app interaction and release-matrix coverage have explicit manual gaps.
 
-The actual production bundle supports the controlled005 placement trial below. **006** adds recovery and closure; **007** adds settings/rule editing and preview; **008** adds protection controls; **009** supplies the full regression/default-activation gate; **010** covers performance/release readiness. None of these later features is implemented here.
+The actual production bundle supports the controlled Task 006 replacement trial below. **007** adds settings/rule editing and preview; **008** adds protection controls; **009** supplies the full regression/default-activation gate; **010** covers performance/release readiness. None of these later features is implemented here.
 
-## Controlled placement trial
+## Controlled replacement trial
 
-Load unpacked `<repository>/dist` after building and verifying it. Use a disposable profile for trials. Open the extension service worker console from `chrome://extensions` and run:
+Load unpacked `<repository>/dist` after building and verifying it. Use a disposable profile only. Before reloading an existing installation, open its service worker console from `chrome://extensions`, export the current configuration and disable processing:
 
 ```js
 const backup = (await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig;
-// Copy/export backup before closing DevTools (Chrome DevTools supports copy()).
+// Export before closing DevTools; Chrome DevTools supports copy().
 copy(JSON.stringify({present: backup !== undefined, value: backup}));
+await chrome.storage.local.set({chromeReHomeConfig: {
+  schemaVersion: 3, enabled: false,
+  groupingRules: backup?.groupingRules ?? [],
+  duplicateRules: backup?.duplicateRules ?? []
+}});
+```
+
+Verify options says disabled, then reload the unpacked extension after building. Reopening DevTools loses the `backup` binding; keep the exported wrapper. Enable a fresh explicit trial with schema3:
+
+```js
 await chrome.storage.local.set({chromeReHomeConfig: {
   schemaVersion: 3, enabled: true,
   groupingRules: [{pattern:'https://example.com/*', group:'Trial'}],
@@ -85,11 +100,13 @@ await chrome.storage.local.set({chromeReHomeConfig: {
 }});
 ```
 
-This replaces configuration. Keep the exported backup, including whether the key was absent. Options should say “Automatic placement is enabled. Tabs are never closed. Rule editing is not available yet.” Open an ordinary link to `https://example.com/` from another page: the same incoming tab should join a `Trial` group in its own window even without a duplicate. Use Back to confirm its history remains. Record tab IDs in the worker console with `await chrome.tabs.query({windowType:'normal'})` before and after each smoke step and confirm every original ID remains.
+This replaces configuration. Options should say “Automatic replacement is enabled. Older duplicate tabs may close after verified placement. Rule editing is not available yet. Interrupted operations may pause processing until Chrome restarts.” This describes configured enablement, not recovery readiness.
 
-To test inheritance, set `groupingRules:[]` in the same schema3 configuration. Keep one tab at a target URL, navigate a second tab to that URL using an ordinary link, and confirm the second tab lands immediately after the first. Repeat with the anchor ungrouped and grouped, in the same window (winner on either side) and another normal window. Try the winner as the last member of its old group and the last tab of its source window; Chrome may remove those empty structures. Add a second member after a grouped anchor to exercise the interior position. Repeat with an active and background winner and a collapsed target. Observe native active/focus/collapse changes; the extension never explicitly sets them.
+Open an ordinary link to `https://example.com/` from another page: the same incoming tab should join a `Trial` group in its own window even without a duplicate. Use Back to confirm its history remains. Record native IDs with `await chrome.tabs.query({windowType:'normal'})`. Grouping-only navigation retains every original ID.
 
-For override, retain an equivalent anchor in another window/group, then enable the `Trial` rule again and navigate the winner via an ordinary link. It should join an existing exact-title `Trial` group in its incoming window, or create one there, without visiting the duplicate window. Repeat with a current matching group and multiple exact-title groups (current first, otherwise leftmost). No duplicate tab is closed.
+To test inheritance, set `groupingRules:[]` in the same schema3 configuration. Keep one tab at a target URL, navigate another tab to it using an ordinary link, and verify the incoming winner survives in the anchor's location and the older anchor closes. The winner's final index accounts for that removal. Repeat grouped/ungrouped, same-window on either side and cross-window, with multiple older duplicates across groups/windows. Only verified older IDs should disappear; unrelated IDs/order and winner history survive. Empty duplicate groups/windows and the winner's emptied source group/window may disappear. A participant navigating, reloading to the same URL, disappearing or becoming pinned/shared/pending cancels further closure. Already-closed tabs are not recreated.
+
+For configured override, keep an older equivalent tab in another window/group, enable the `Trial` rule and navigate the winner via an ordinary link. It joins an existing exact-title `Trial` group in its incoming window or creates one there, then may close the old duplicate after verification. Repeat with a current matching group, multiple exact-title groups, active/background winner and a collapsed target. Observe Chrome's active/focus/collapse effects; the extension never explicitly sets them.
 
 Pause while preserving rules:
 
@@ -98,13 +115,17 @@ const {chromeReHomeConfig: current} = await chrome.storage.local.get('chromeReHo
 await chrome.storage.local.set({chromeReHomeConfig:{...current,enabled:false}});
 ```
 
-Navigate another ordinary link and confirm no placement occurs. Restore in the same DevTools session:
+Navigate another ordinary link and confirm no placement or closure occurs. Pausing does not unblock a quarantined journal. If an operation was interrupted with uncertain native settlement, fully restart Chrome before a new explicit disposable-profile trial. Recovery reads/abandons settled work; it never resumes old closure even when document IDs match.
+
+Restore in the same DevTools session:
 
 ```js
 if (backup === undefined) await chrome.storage.local.remove('chromeReHomeConfig');
 else await chrome.storage.local.set({chromeReHomeConfig:backup});
 ```
 
-After reopening DevTools, parse the exported wrapper and restore its `value` when `present` is true; otherwise remove only `chromeReHomeConfig`. Do not clear unrelated storage.
+After reopening DevTools, parse the exported wrapper and restore its `value` when `present` is true; otherwise remove only `chromeReHomeConfig`. Do not clear unrelated storage or the replacement journal.
 
-Production-dist browser tests use a real local HTTP server and native navigation, tab IDs, indices, memberships and history. They cover grouping-only, both ordering directions, grouped/ungrouped cross-window placement, last source group/window removal, a collapsed configured override and disabling. Simulated drag/title failures are separate adapter/executor tests. Actual mouse-drag rejection, explicitly enabled incognito, Chrome120 and current-stable release checks remain manual gaps. For actual drag, navigate an eligible tab while dragging a tab in a disposable profile, then release it; observe no retry/closure and confirm every original ID remains. Incognito requires explicitly enabling extension access and repeating same-context cases; normal/incognito must never mix. The accepted004 scripted-link ambiguity remains: Chrome can report a script as eligible ordinary `link`, including after worker restart. Whole-view invalidation may also conservatively cancel placement after unrelated navigation.
+Production-dist browser tests use real local HTTP links and native IDs, order, memberships/history, grouped/ungrouped cross-window closure, last-tab/group disappearance and disabled/grouping-only retention. **Seeded production recovery checks** use real document IDs and actual CDP worker stop/start; they verify admission and byte-preserved bad/pending data, not native interruption. A separate temporary fixture bundles the actual replacement/journal/recovery/adapters and coordinator with controlled gates, stops real workers after durable prepared/pending/settled/verified/placed/removed/terminal boundaries, and delivers actual participant events during held promises. Those endpoints never enter production. Wrapper rejection tests are simulated faults. Gates before invocation or after native fulfillment do not prove termination inside an outstanding Chrome API call; a deferred unit test with a discarded old worker's late effect supplies that coverage.
+
+Manual Chrome trials remain required for actual mouse drag/rejection, user-facing focus/collapse, explicitly enabled incognito, Chrome120 and current stable. This work does not claim those trials complete. For drag, navigate while dragging in the disposable profile, release, and verify no retry and no further closure after failure; prior verified removals can remain removed. Incognito requires explicitly enabling extension access and repeating same-context cases; normal/incognito must never mix. The accepted004 scripted-link ambiguity remains: Chrome can report a script as ordinary eligible `link`, including after worker restart. Whole-view invalidation may conservatively cancel work after unrelated navigation. Tasks007–010 (rule editing/preview, broader protections, default-activation regression and release/performance readiness) remain pending.

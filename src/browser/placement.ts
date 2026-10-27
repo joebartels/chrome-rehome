@@ -1,8 +1,8 @@
-import type { PlacementPort } from '../execution/placement';
+import type { ReplacementPort } from '../execution/replacement';
 import { createGroupPlacementAdapter } from './group-placement';
 import { createSnapshotReader } from './snapshots';
 
-export function createPlacementAdapter(api: Pick<typeof chrome, 'tabs' | 'tabGroups' | 'webNavigation'>): PlacementPort {
+export function createPlacementAdapter(api: Pick<typeof chrome, 'tabs' | 'tabGroups' | 'webNavigation'>): ReplacementPort {
   const reader = createSnapshotReader(api);
   const groups = createGroupPlacementAdapter(api);
   return {
@@ -21,5 +21,6 @@ export function createPlacementAdapter(api: Pick<typeof chrome, 'tabs' | 'tabGro
     async ungroupTab(tabId) { await api.tabs.ungroup(tabId); },
     groupTab: groups.groupTab,
     setTitle: groups.setTitle,
+    async removeTab(tabId) { await api.tabs.remove(tabId); },
   };
 }

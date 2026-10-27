@@ -103,14 +103,13 @@ for (const direction of ['before', 'after'] as const)
     const before = await tabs(options);
     await config(options);
     await winner.getByRole('link').click();
-    await expect.poll(async () => {
-      const t = await tabs(options);
-      return t.find(t => t.id === winnerId)!.index - t.find(t => t.id === anchorId)!.index;
-    }).toBe(1);
+    await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
+    const expectedIndex = before.find(t => t.id === anchorId)!.index - (before.find(t => t.id === winnerId)!.index < before.find(t => t.id === anchorId)!.index ? 1 : 0);
+    expect((await tabs(options)).find(t => t.id === winnerId)!.index).toBe(expectedIndex);
     const after = await tabs(options);
-    expect(after.filter(t => t.id !== winnerId).sort((a, b) => a.index - b.index).map(t => t.id))
-      .toEqual(before.filter(t => t.id !== winnerId).sort((a, b) => a.index - b.index).map(t => t.id));
-    await retain(options, before.map(t => t.id!));
+    expect(after.filter(t => t.id !== winnerId && t.id !== anchorId).sort((a, b) => a.index - b.index).map(t => t.id))
+      .toEqual(before.filter(t => t.id !== winnerId && t.id !== anchorId).sort((a, b) => a.index - b.index).map(t => t.id));
+    await retain(options, before.filter(t => t.id !== anchorId).map(t => t.id!));
     await winner.goBack();
     expect(winner.url()).toBe(origin + '/before');
   }));
@@ -126,7 +125,7 @@ for (const grouped of [false, true])
     const setup = await options.evaluate(async ({ anchorId, winnerId, grouped }) => {
       let groupId = -1;
       if (grouped) {
-        groupId = await chrome.tabs.group({ tabIds: [anchorId] });
+        groupId = await chrome.tabs.group({ tabIds: [anchorId], createProperties: { windowId: (await chrome.tabs.get(anchorId)).windowId } });
         await chrome.tabGroups.update(groupId, { title: 'Inherited', collapsed: true });
       }
       const source = await chrome.windows.create({ tabId: winnerId, focused: false });
@@ -157,8 +156,9 @@ for (const grouped of [false, true])
     await expect.poll(async () => {
       const t = (await tabs(options)).find(t => t.id === winnerId)!;
       return { windowId: t.windowId, groupId: t.groupId, index: t.index };
-    }).toEqual({ windowId: setup.anchor.windowId, groupId: setup.groupId, index: setup.anchor.index + 1 });
-    await retain(options, original);
+    }).toEqual({ windowId: setup.anchor.windowId, groupId: setup.groupId, index: setup.anchor.index });
+    await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
+    await retain(options, original.filter(id => id !== anchorId));
     const observed = await options.evaluate(async ({ groupId, sourceWindow }) => ({
       tabs: await chrome.tabs.query({}),
       groups: await chrome.tabGroups.query({}),
@@ -197,7 +197,9 @@ test('production configured override stays in incoming window and appends to col
   await member.goto(origin + '/member');
   const memberId = await id(options, member);
   const target = await options.evaluate(async (id) => {
-    const groupId = await chrome.tabs.group({ tabIds: [id] });
+    const ownWindow = (await chrome.tabs.query({ url: chrome.runtime.getURL('options/index.html') }))[0]!.windowId;
+    await chrome.tabs.move(id, { windowId: ownWindow, index: -1 });
+    const groupId = await chrome.tabs.group({ tabIds: [id], createProperties: { windowId: ownWindow } });
     await chrome.tabGroups.update(groupId, { title: 'Work', collapsed: true });
     return { groupId, windowId: (await chrome.tabs.get(id)).windowId };
   }, memberId);
@@ -217,9 +219,10 @@ test('production configured override stays in incoming window and appends to col
     const t = (await tabs(options)).find(t => t.id === winnerId)!;
     return { windowId: t.windowId, groupId: t.groupId };
   }).toEqual(target);
+  await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
   const t = await tabs(options);
   expect(t.find(t => t.id === winnerId)!.index).toBe(t.find(t => t.id === memberId)!.index + 1);
-  await retain(options, original);
+  await retain(options, original.filter(id => id !== anchorId));
   const native = {
     winner: (await tabs(options)).find(t => t.id === winnerId),
     target: await options.evaluate(id => chrome.tabGroups.get(id), target.groupId),
@@ -231,4 +234,31 @@ test('production configured override stays in incoming window and appends to col
   console.info('native background override', JSON.stringify(native));
   await winner.goBack();
   expect(winner.url()).toBe(origin + '/before');
+}));
+
+
+test('production closes three duplicates across two windows and groups including passive documents',async()=>fixture(async(context,options)=>{
+  const older:Page[]=[];
+  for(let i=0;i<3;i++){const p=await context.newPage();await p.goto(origin+'/target');older.push(p);}
+  const duplicateIds=await options.evaluate(async url=>(await chrome.tabs.query({})).filter(t=>t.url===url).map(t=>t.id!),origin+'/target');
+  expect(duplicateIds).toHaveLength(3);
+  const setup=await options.evaluate(async ids=>{
+    const first=await chrome.tabs.group({tabIds:[ids[0]!,ids[1]!],createProperties:{windowId:(await chrome.tabs.get(ids[0]!)).windowId}});await chrome.tabGroups.update(first,{title:'Inherited'});
+    const window=await chrome.windows.create({tabId:ids[2]!});const second=await chrome.tabs.group({tabIds:[ids[2]!],createProperties:{windowId:window!.id!}});await chrome.tabGroups.update(second,{title:'Empty'});
+    return {first,second,emptyWindow:window!.id!,anchor:await chrome.tabs.get(ids[0]!)};
+  },duplicateIds);
+  const winner=await context.newPage();await winner.goto(origin+'/before');const winnerId=await id(options,winner);
+  await options.evaluate(async({winnerId,windowId})=>{await chrome.tabs.move(winnerId,{windowId,index:-1});},{winnerId,windowId:setup.anchor.windowId});
+  const original=(await tabs(options)).map(t=>t.id!);
+  // A real worker restart drops navigation provenance; frame0 evidence must independently authorize passive duplicates.
+  const cdp=await context.newCDPSession(options);const versions=new Map<string,{versionId:string;scriptURL:string;runningStatus:string}>();
+  cdp.on('ServiceWorker.workerVersionUpdated',({versions:changed})=>{for(const v of changed)versions.set(v.versionId,v);});
+  await cdp.send('ServiceWorker.enable');await expect.poll(()=>[...versions.values()].find(v=>v.runningStatus==='running'&&v.scriptURL.startsWith('chrome-extension://'))).toBeTruthy();const version=[...versions.values()].find(v=>v.runningStatus==='running'&&v.scriptURL.startsWith('chrome-extension://'))!;
+  await cdp.send('ServiceWorker.stopWorker',{versionId:version.versionId});await expect.poll(()=>versions.get(version.versionId)?.runningStatus).toBe('stopped');await cdp.detach();
+  await config(options);await winner.getByRole('link').click();
+  await expect.poll(async()=>(await tabs(options)).filter(t=>duplicateIds.includes(t.id!)).length).toBe(0);
+  await retain(options,original.filter(id=>!duplicateIds.includes(id)));
+  const placed=(await tabs(options)).find(t=>t.id===winnerId)!;expect(placed.windowId).toBe(setup.anchor.windowId);expect(placed.groupId).toBe(setup.first);expect(placed.index).toBe(setup.anchor.index);
+  expect(await options.evaluate(async({second,emptyWindow})=>({group:(await chrome.tabGroups.query({})).some(g=>g.id===second),window:(await chrome.windows.getAll()).some(w=>w.id===emptyWindow)}),setup)).toEqual({group:false,window:false});
+  await winner.goBack();expect(winner.url()).toBe(origin+'/before');
 }));

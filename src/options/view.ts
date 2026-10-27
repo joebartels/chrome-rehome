@@ -9,7 +9,9 @@ export function createOptionsView(state: ConfigState): OptionsView {
   if (state.kind === 'ready') {
     return {
       heading: 'ChromeReHome installed',
-      message: `Automatic placement is ${state.config.enabled ? 'enabled' : 'disabled'}. Tabs are never closed. Rule editing is not available yet.`,
+      message: state.config.enabled
+        ? 'Automatic replacement is enabled. Older duplicate tabs may close after verified placement. Rule editing is not available yet. Interrupted operations may pause processing until Chrome restarts.'
+        : 'Automatic replacement is disabled. Rule editing is not available yet.',
       severity: 'info',
     };
   }
@@ -18,7 +20,7 @@ export function createOptionsView(state: ConfigState): OptionsView {
     'future-version': 'Stored configuration requires a newer extension version. Update the extension to read it.',
     storage: 'Configuration storage is unavailable. Reload this page to try again.',
   };
-  return { heading: 'ChromeReHome installed', message: `${actions[state.reason]} Automatic placement is unavailable. Tabs are never closed.`, severity: 'error' };
+  return { heading: 'ChromeReHome installed', message: `${actions[state.reason]} Automatic replacement is unavailable.`, severity: 'error' };
 }
 
 export function mountOptions(elements: Elements, config: ReturnType<typeof createConfigRepository>) {

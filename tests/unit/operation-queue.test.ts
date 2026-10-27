@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { createReplacementExecutor } from '../../src/execution/replacement';
+import { replacementFixture } from '../fixtures/replacement';
 import { createOperationQueue } from '../../src/background/operation-queue';
 
 function deferred<T>() {
@@ -85,4 +87,16 @@ describe('operation queue', () => {
     await expect(queue.run(() => { throw failure; })).rejects.toBe(failure);
     expect(await queue.run(async () => 7)).toBe(7);
   });
+});
+
+it('sole queue awaits actual rejection and failed settlement write before denying later mutation',async()=>{
+  vi.useFakeTimers();
+  try {
+    const f=replacementFixture();const entered=deferred<void>();const release=deferred<void>();const order:string[]=[];const nativeCause={native:true};let pending=false;
+    f.port.removeTab=async()=>{order.push('native-start');entered.resolve();await release.promise;order.push('native-reject');throw nativeCause;};
+    f.boundary(async name=>{if(name==='journal:pending:remove')pending=true;else if(pending&&name==='journal:placed'){order.push('settled-write');throw Error('storage');}});
+    const executor=createReplacementExecutor({port:f.port,journal:f.journal});const queue=createOperationQueue();const first=queue.run(()=>executor.execute(f.plan,f.guard));await entered.promise;
+    const second=queue.run(async()=>{order.push('second');return executor.execute(f.plan,f.guard);});
+    await vi.advanceTimersByTimeAsync(3600000);expect(order).toEqual(['native-start']);release.resolve();const [a,b]=await Promise.all([first,second]);expect(a).toMatchObject({kind:'stopped',cause:nativeCause,uncertainRemovalId:2});expect(b.kind).toBe('stopped');expect(order).toEqual(['native-start','native-reject','settled-write','second']);expect(f.journal.isBlocked()).toBe(true);expect(f.removed).toEqual([]);
+  } finally { vi.useRealTimers(); }
 });

@@ -13,6 +13,11 @@ export type PlacementPort = {
   setTitle(groupId: number, title: string): Promise<void>;
 };
 export type MutationPhase = 'ungroup' | 'move' | 'group' | 'title';
+export type PlacementCheckpoints = {
+  beforeMutation(phase: MutationPhase): Promise<void>;
+  afterSettlement(phase: MutationPhase): Promise<void>;
+  afterVerification(phase: MutationPhase): Promise<void>;
+};
 export type PlacementPhase = 'read' | 'document' | MutationPhase | 'verify';
 export type PlacementEffect = Readonly<{
   phase: MutationPhase;
@@ -20,12 +25,12 @@ export type PlacementEffect = Readonly<{
   groupId?: number
 }>;
 export type PlacementResult =
-  | Readonly<{ kind: 'placed' | 'unchanged'; windowId: number; groupId: number; index: number }>
+  | Readonly<{ kind: 'placed' | 'unchanged'; windowId: number; groupId: number; index: number; snapshot: PlacementSnapshot }>
   | Readonly<{ kind: 'skipped'; reason: 'state-changed' }>
   | Readonly<{ kind: 'failed'; phase: PlacementPhase; cause: unknown; effects: readonly PlacementEffect[] }>;
 
 // This executor runs inside the coordinator's queue. Native promises are never raced with a timeout.
-export function createPlacementExecutor({ port }: { port: PlacementPort }) {
+export function createPlacementExecutor({ port, checkpoints }: { port: PlacementPort; checkpoints?: PlacementCheckpoints }) {
   return {
     async execute(plan: ReplacementPlan, guard: PlacementGuard): Promise<PlacementResult> {
       const effects: PlacementEffect[] = [];
@@ -36,7 +41,7 @@ export function createPlacementExecutor({ port }: { port: PlacementPort }) {
       let titled = false;
       const destination = plan.destination;
       const windowId = destination.kind === 'unchanged' ? expected.windowId : destination.windowId;
-      const windows = new Set([expected.windowId, windowId]);
+      const windows = new Set([expected.windowId, windowId, ...plan.duplicates.map(participant => participant.tab.windowId)]);
       const baselineTabs = plan.baseline.tabs.filter(tab => windows.has(tab.windowId));
       const baselineGroups = plan.baseline.groups.filter(group => windows.has(group.windowId));
       const used: Participant[] = [
@@ -138,20 +143,32 @@ export function createPlacementExecutor({ port }: { port: PlacementPort }) {
         operation: () => Promise<T>,
         accept: (value: T) => void
       ): Promise<PlacementSnapshot> {
+        if (checkpoints) await checkpoints.beforeMutation(mutationPhase);
+        // A durable pending write is an await: repeat the entire preflight after it.
         await observe();
         check();
         phase = mutationPhase;
         effects.push(Object.freeze({ phase: mutationPhase, outcome: 'uncertain' }));
-        const value = await operation();
+        let value: T;
+        try {
+          value = await operation();
+        } catch (cause) {
+          // Preserve native rejection identity even when settlement bookkeeping also fails.
+          try { await checkpoints?.afterSettlement(mutationPhase); } catch { /* Journal blocks admission. */ }
+          throw cause;
+        }
         effects[effects.length - 1] = Object.freeze({
           phase: mutationPhase,
           outcome: 'acknowledged',
           ...(mutationPhase === 'group' ? { groupId: value as number } : {})
         });
+        await checkpoints?.afterSettlement(mutationPhase);
         accept(value);
         check();
         const snapshot = await observe(true);
         effects[effects.length - 1] = Object.freeze({ ...effects[effects.length - 1]!, outcome: 'verified' });
+        await checkpoints?.afterVerification(mutationPhase);
+        check();
         return snapshot;
       }
 
@@ -237,7 +254,11 @@ export function createPlacementExecutor({ port }: { port: PlacementPort }) {
           kind: effects.length ? 'placed' : 'unchanged',
           windowId: expected.windowId,
           groupId: expected.groupId,
-          index: expected.index
+          index: expected.index,
+          snapshot: Object.freeze({
+            tabs: Object.freeze(snapshot.tabs.map(tab => Object.freeze({ ...tab }))),
+            groups: Object.freeze(snapshot.groups.map(group => Object.freeze({ ...group })))
+          })
         });
       } catch (cause) {
         if (cause === invalid && !effects.length) return Object.freeze({ kind: 'skipped', reason: 'state-changed' });

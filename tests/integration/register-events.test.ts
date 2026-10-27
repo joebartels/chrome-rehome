@@ -36,6 +36,7 @@ function fakeApi(read: () => Promise<Record<string, unknown>>) {
     },
     storage: {
       local: { get: vi.fn(read), set: vi.fn(async () => {}) },
+      session: { get: vi.fn(async () => ({})), set: vi.fn(async () => {}), remove: vi.fn(async () => {}) },
       onChanged: event<(changes: Record<string, chrome.storage.StorageChange>, area: string) => unknown>(),
     },
   };
@@ -164,13 +165,26 @@ describe('worker event registration', () => {
 
   it('the production entry registers all events before an unresolved read finishes', async () => {
     const fake = fakeApi(() => new Promise(() => {}));
+    let sessionRead!: () => void;
+    const sessionStarted = new Promise<void>(resolve => { sessionRead = resolve; });
+    fake.storage.session.get.mockImplementation(async () => {
+      for (const group of [fake.webNavigation, fake.tabs, fake.runtime]) {
+        for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
+      }
+      sessionRead();
+      return {};
+    });
     vi.stubGlobal('chrome', fake);
     await import('../../src/background/index');
+    await sessionStarted;
     for (const group of [fake.webNavigation, fake.tabs, fake.runtime]) {
       for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
     }
     expect(fake.storage.local.get).toHaveBeenCalledTimes(1);
     expect(fake.storage.local.set).not.toHaveBeenCalled();
+    expect(fake.storage.session.get).toHaveBeenCalledExactlyOnceWith('chromeReHomeReplacementJournal');
+    expect(fake.storage.session.set).not.toHaveBeenCalled();
+    expect(fake.storage.session.remove).not.toHaveBeenCalled();
   });
 });
 
