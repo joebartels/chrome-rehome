@@ -6,13 +6,13 @@
 
 **Architecture:** Keep the coordinator's sole queue and Task005 phase guards. A queue-free replacement executor wraps placement and sequential closure with a small session journal; startup recovery abandons settled work and quarantines unresolved native calls. A narrow removal-aware tracker lease accepts our own expected removal feedback without reviving stale work.
 
-**Tech Stack:** TypeScript, Node24, Chrome120+ Manifest V3, existing Vitest/Playwright/esbuild; no new dependencies.
+**Tech Stack:** TypeScript, Node24, Chrome 120+ Manifest V3, existing Vitest/Playwright/esbuild; no new dependencies.
 
 **Spec:** `docs/superpowers/specs/2026-10-26-recoverable-closure-design.md`.
 
 ## Global Constraints
 
-- Preserve Node24, Chrome120+, schemaVersion3, permissions, dependencies and the default-disabled configuration.
+- Preserve Node24, Chrome 120+, schemaVersion3, permissions, dependencies and the default-disabled configuration.
 - Implement only Task 006 and pause before Task 007. No rule editor, popup, broader audible/form protections, retries, rollback, automatic enablement or personal Chrome actions.
 - Configured grouping overrides inherited location; preserve the winning ID/history and existing pure matching/planning contracts.
 - One coordinator queue; no queue nesting and no timeout releases while native calls can still mutate.
@@ -99,9 +99,9 @@ Produce exactly the structural types and signatures in the design's Ownership an
   3. Temporary fixture bundles actual replacement/journal/recovery/adapter and existing real navigation coordinator with test-only gates injected through structural ports/storage wrappers. Stop via CDP after prepared, each placement mutation pending/settled/verified, placed, removal pending/settled/verified and terminal-before-clear. Gate immediately after durable write resolves to make phase deterministic; create a new actual worker on restart and inspect preserved session data/live tabs. A pending phase must never remove any additional survivor. A settled phase must abandon without replay. For actual outstanding-call testing, distinguish native call already issued from merely blocked before invocation; if Chrome cannot reliably be stopped inside a real in-flight API call, unit deferred test is authoritative and browser report states that gap. Never fabricate a successful interruption claim.
   4. Same fixture delays native port/document/journal promises to navigate a passive duplicate, reload it to identical URL, disable config, remove a different participant or commit a competing winner at each closure boundary. Trigger actual browser events, then release; assert no subsequent close. Tests for rejection use controlled wrapper faults and are labeled simulated. Fixture-only globals/control endpoints never appear in production source or dist.
 
-- [ ] **Step11: Verify all gates and independently review.** Run under cached Node24: typecheck, full Vitest, build, package check, full Playwright. Exact commands below. All must pass; package remains existing five-file extension with no endpoint/fixture/no added permission or dependency. Inspect evidence for winner/history/remaining-ID correctness and actual worker-stop transitions. Controller supplies independent task review and whole-feature review; address findings, rerun affected checks and full final gates when needed.
+- [x] **Step11: Verify all gates and independently review.** Run under cached Node24: typecheck, full Vitest, build, package check, full Playwright. Exact commands below. All must pass; package remains existing five-file extension with no endpoint/fixture/no added permission or dependency. Inspect evidence for winner/history/remaining-ID correctness and actual worker-stop transitions. Controller supplies independent task review and whole-feature review; address findings, rerun affected checks and full final gates when needed.
 
-- [ ] **Step12: Commit scoped deliverable and report, then stop before007.** Record actual RED/GREEN evidence, full test totals, production versus fixture browser evidence, recovery limitations and remaining manual Chrome matrix. Give exact dist path and disposable-profile backup/disable-before-reload/enable/pause/restore commands. Do not claim manual trial complete. Controller updates durable review/completion and plan checkboxes; no push/merge/publication unless separately authorized.
+- [x] **Step12: Commit scoped deliverable and report, then stop before007.** Record actual RED/GREEN evidence, full test totals, production versus fixture browser evidence, recovery limitations and remaining manual Chrome matrix. Give exact dist path and disposable-profile backup/disable-before-reload/enable/pause/restore commands. Do not claim manual trial complete. Controller updates durable review/completion and plan checkboxes; no push/merge/publication unless separately authorized.
 
 ## Execution commands and evidence
 
@@ -120,3 +120,7 @@ Browser process/localhost launch may require scoped sandbox escalation already u
 ## Design self-review
 
 Spec coverage: all006 acceptance points map to Steps1/5/7/8/10. All five Review Focus modes have named tests in Step5 and appropriate native/browser checks in Step10. Independent passive closure evidence, no Symbol/URL persistence, late native effects, last-window removal, delayed own events and already-enabled upgrade are explicit. No unrelated007/008 work or additional dependency is included. One review unit is intentional because shipping any one of closure, journal or recovery without the others would violate the outcome.
+
+## Completion
+
+Complete on 2026-10-26 after delegated implementation, independent task review, global-absence fix/scoped review, whole-feature review and one cleanup/scoped review. No open findings remain. Final verification passed: 855 tests, typecheck, build and package checks; all 94 Chromium cases passed after the safety fix, with 66 affected recovery cases rechecked after cleanup. See [durable completion evidence](../../reviews/2026-10-26-recoverable-closure-completion.md). Paused before Task 007.

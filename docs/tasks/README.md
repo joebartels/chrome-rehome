@@ -2,22 +2,21 @@
 
 Foundation status: implemented and locally verified on 2026-10-25; see [foundation design](../superpowers/specs/2026-10-24-foundation-design.md).
 
-Tasks 001 matching/configuration, 002 duplicate identity/schema 3 and 003 group destination resolution are implemented and locally verified; Task 004 navigation eligibility/winner selection is complete and locally verified on 2026-10-26; Task005 replacement planning/placement is complete and locally verified; Tasks006–010 remain TODO. See [Task005 completion and Chrome trial](../reviews/2026-10-26-replacement-placement-completion.md). Task 004 [completion evidence](../reviews/2026-10-26-navigation-eligibility-completion.md). Task 003 completed on 2026-10-26; see [completion evidence](../reviews/2026-10-26-group-destination-resolution-completion.md). Hosted CI, Chrome 120/current-stable release compatibility, and expanded performance budgets remain unverified.
+Tasks 001–006 are implemented and locally verified. Task 006 recoverable closure and stale-work protection completed on 2026-10-26; see [completion evidence and Chrome trial](../reviews/2026-10-26-recoverable-closure-completion.md). Work is paused before Task 007. Tasks 007–010 remain TODO. Hosted CI, Chrome 120/current-stable runtime compatibility, enabled-incognito/interactive manual trials and release/performance readiness remain unverified.
 
-The foundation establishes contracts, lifecycle wiring, configuration, a mutation queue, tests and build tooling. Automatic placement is available only when explicitly enabled through configuration. Closure is absent until Task006; default activation still waits for later protections/regression checks.
+The explicitly enabled production trial places the winning tab, retains its ID/history and closes older duplicates only after independent evidence, verified placement and fresh preconditions. A session journal quarantines ambiguous interrupted work and never replays old closure. Configuration defaults to disabled; manual setup is in the README. The editor and broader protections remain later tasks.
 
 - [001: Wildcard group rules](todo/001-wildcard-group-rules.md) — complete; depends on foundation
 - [002: Duplicate URL equivalence](todo/002-duplicate-url-equivalence.md) — complete; depends on foundation
 - [003: Group destination resolution](todo/003-group-destination-resolution.md) — complete; depends on 001
 - [004: Navigation eligibility and winner selection](todo/004-navigation-eligibility-and-winner-selection.md) — complete; depends on 002
 - [005: Replacement planning and placement](todo/005-replacement-planning-and-placement.md) — complete; depends on 001, 002, 003, 004
-- [006: Recoverable closure and stale-work protection](todo/006-recoverable-closure-and-stale-work-protection.md) — depends on 005
+- [006: Recoverable closure and stale-work protection](todo/006-recoverable-closure-and-stale-work-protection.md) — complete; depends on 005
 - [007: Rule editor and matching preview](todo/007-rule-editor-and-matching-preview.md) — depends on 001, 002, 003
 - [008: Pause controls and replacement protections](todo/008-pause-controls-and-replacement-protections.md) — depends on 006, 007
 - [009: Real-browser feature regression suite](todo/009-real-browser-feature-regression-suite.md) — depends on 006, 007, 008
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009
 
-Tasks 001 and 002 are independent pure rule engines. Task 007 can progress alongside replacement/recovery after its dependencies. Automatic duplicate closure must not ship before task 006; default activation waits for protections in 008 and regression checks in 009. Task numbers are stable identifiers; completion can be tracked in each file.
+Tasks 001 and 002 are independent pure rule engines. Task numbers are stable identifiers; completion is tracked in each file. Default activation still waits for protections in 008 and the full regression gate in 009.
 
-
-Chrome trial milestones: **load unpacked now for installation/configuration status**; default configuration is disabled; explicitly enabled Task005 now performs placement while retaining every tab. **005** now provides the controlled placement trial through the production executor; see the README configuration instructions. **006** adds recoverable closure, **007** convenient settings and matching preview, **008** pause/protection controls and **009** the full browser regression gate before default activation. **010** remains release/performance validation. Task 004 is pure selection plus conservative observation, with no closure authority; its documented metadata limitations and disposable-browser capability gaps must inform later activation decisions.
+Chrome trial milestones: **load unpacked now for the controlled Task006 replacement trial**, using a disposable profile and explicit configuration. An already-enabled Task005 installation becomes closure-enabled on reload; pause before upgrading. **007** adds convenient settings/rule editing and matching preview; **008** adds pause/protection controls; **009** completes the default-activation regression gate; **010** covers release/performance validation. Task004 metadata/intent limitations and manual capability gaps remain documented. Historical Task005 completion evidence describes its previous placement-only phase.

@@ -1,6 +1,6 @@
 # 006: Recoverable closure and stale-work protection
 
-Status: TODO
+Status: complete — implemented and locally verified on 2026-10-26
 
 Depends on: 005
 
@@ -14,11 +14,11 @@ execution/replacement.ts; execution/journal.ts; background/recovery.ts; storage.
 
 ## Acceptance criteria and decisions
 
-- [ ] Define a small versioned journal with bounded participants/document IDs, native mutation ordinal/pending state and completed phase; keep URL identity and tracker generations exclusively in memory. Treat live Chrome state as authoritative.
-- [ ] Revalidate winner and each duplicate immediately before removal; abort stale plans when any participant navigates or disappears.
-- [ ] Document the residual race: Chrome has no atomic compare-URL-and-close API. Minimize it and never claim full transaction guarantees.
-- [ ] Never release a mutation queue because Promise.race timed out while its underlying browser call can still mutate.
-- [ ] Test worker termination after each phase, journal write failures, placement/removal failures, a participant navigating mid-operation, event feedback, and competing winners. No closure on ambiguous recovery.
+- [x] Define a small versioned journal with bounded participants/document IDs, native mutation ordinal/pending state and completed phase; keep URL identity and tracker generations exclusively in memory. Treat live Chrome state as authoritative.
+- [x] Revalidate winner and each duplicate immediately before removal; abort stale plans when any participant navigates or disappears.
+- [x] Document the residual race: Chrome has no atomic compare-URL-and-close API. Minimize it and never claim full transaction guarantees.
+- [x] Never release a mutation queue because Promise.race timed out while its underlying browser call can still mutate.
+- [x] Test worker termination after each phase, journal write failures, placement/removal failures, a participant navigating mid-operation, event feedback, and competing winners. No closure on ambiguous recovery.
 
 ## Implementation discipline
 
@@ -55,4 +55,8 @@ A terminal-plus-pending record is invalid. A full browser restart is the reliabl
 
 Production dist verifies real closure/order/history and disabled/grouping-only retain-all behavior. Seeded public-session recovery tests verify quarantine/abandonment after actual worker stop/start, without claiming native interruption. The temporary phase fixture bundles actual production modules and stops real workers after durable phases, including repeated move ordinals/final reorder and native-remove-fulfilled-before-settlement. Pending-before-call and fulfilled-wrapper gates are identified honestly. No deterministic stop inside a still-outstanding native Chrome API call is claimed; the deferred unit test reconstructs a new tracker/coordinator/queue with the old call unresolved and demonstrates quarantine even after its late effect/event. Controlled rejection tests are labeled simulated. All fixture controls remain outside production source/dist.
 
-Manual disposable-profile Chrome120/current-stable, enabled incognito, actual drag and user-facing focus/collapse checks remain outstanding. Historical Task005 reports retain their placement-only retain-all claims as evidence of that previous phase.
+Manual disposable-profile Chrome 120/current-stable, enabled incognito, actual drag and user-facing focus/collapse checks remain outstanding. Historical Task005 reports retain their placement-only retain-all claims as evidence of that previous phase.
+
+## Completion evidence
+
+Delegated implementation and independent task/whole-feature reviews are complete, including scoped reviews of the global-target-absence fix and final readability cleanup. No finding remains open. Verification: 855 unit/integration tests, 94 full Chromium cases after the safety fix, 66 affected recovery cases after cleanup, plus typecheck/build/package checks. Both formatted test files compile identically to their pre-cleanup versions. See [completion and Chrome trial](../../reviews/2026-10-26-recoverable-closure-completion.md) and [README trial steps](../../../README.md#controlled-replacement-trial). Paused before Task 007; manual capability limits above remain unverified.
