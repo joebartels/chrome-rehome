@@ -15,6 +15,7 @@ The explicitly enabled production trial places the winning tab, retains its ID/h
 - [006a: External-app link compatibility](todo/006a-external-app-link-compatibility.md) — complete; depends on 004, 006
 - [007: Rule editor and matching preview](todo/007-rule-editor-and-matching-preview.md) — complete; depends on 001, 002, 003
 - [007a: Preserve existing duplicate placement](todo/007a-preserve-existing-placement.md) — complete; existing group/window wins over a grouping rule
+- [007b: Cross-window group reuse and foreground focus](todo/007b-cross-window-group-reuse-and-focus.md) — implementation verified; final review pending
 - [008: Pause controls and replacement protections](todo/008-pause-controls-and-replacement-protections.md) — depends on 006, 007
 - [009: Real-browser feature regression suite](todo/009-real-browser-feature-regression-suite.md) — depends on 006, 007, 008
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009

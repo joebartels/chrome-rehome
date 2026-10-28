@@ -1,0 +1,11 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ChromeReHome cross-window trial</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:46rem;margin:3rem auto;padding:0 1rem}li{margin:.8rem 0}a{overflow-wrap:anywhere}</style></head>
+<body><h1>ChromeReHome cross-window trial</h1>
+<p>In window 1, keep one group named <strong>Group A</strong>. In ChromeReHome settings, save an enabled grouping rule <code>https://example.com/*</code> → <strong>Group A</strong>. Automatic replacement must already be enabled.</p>
+<p>Open this local file in window 2. Before each test, close older tabs at that test URL so duplicate inheritance does not select another location.</p>
+<ol><li>Click <a href="https://example.com/?rehome_trial=foreground" target="_blank" rel="noopener">Foreground test</a> normally. The new tab should join the existing Group A in window 1, become active, and bring window 1 forward.</li>
+<li>Return to window 2. Cmd-click <a href="https://example.com/?rehome_trial=background" target="_blank" rel="noopener">Background test</a> on macOS (Ctrl-click on Windows/Linux). The new tab should join Group A while window 2 stays in front and window 1 keeps its previous active tab.</li></ol>
+<p>There should still be one Group A. Existing same-name groups are not merged. To check manual organization, move an older duplicate into another group and reopen its exact URL; that duplicate's location should still win.</p>
+<p>This page has no scripts and requests nothing until a link is clicked.</p></body></html>
