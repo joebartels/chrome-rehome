@@ -1,6 +1,6 @@
 # ChromeReHome
 
-**Pause your existing configuration before reloading this build; enabled mode can now close duplicate tabs.**
+**Upgrading from a Task005-or-earlier placement-only build? Pause processing before reloading: this build can close verified duplicate tabs. An already-enabled Task006/007a controlled trial may reload with activation preserved to try Task007b. Fresh or disabled installations remain disabled; use the controlled trial setup below to explicitly activate when needed.**
 
 Chrome Manifest V3 extension for an explicitly enabled replacement trial. Eligible navigation places the existing winning tab, preserves its ID/history, then sequentially closes older duplicates only after independent document checks and verified placement. An existing eligible duplicate supplies the group/window and position, preserving manual organization even when a grouping rule disagrees. With no duplicate, grouping rules reuse an existing exact-title group across normal windows in the same browsing context, creating one only when none exists. Foreground opens select the incoming tab and focus its destination window; deliberate background opens stay in the background. Configuration defaults to disabled; an already-enabled Task005 installation activates closure when this build loads. The options page edits ordered grouping and duplicate-equivalence rules and previews draft matches before saving. Task005's retain-all placement behavior is the previous phase; its historical evidence remains in the task/review documents.
 
@@ -64,7 +64,7 @@ Saving keeps your global activation state; a fresh installation remains disabled
 
 ## Try cross-window group reuse and focus
 
-1. Reload the existing ChromeReHome installation in `chrome://extensions`. Keep the current activation setting enabled for the controlled trial.
+1. For an already-enabled Task006/007a controlled trial, reload ChromeReHome in `chrome://extensions` with activation preserved, then continue the trial. For a Task005-or-earlier placement-only build, follow the pause-before-reload precaution above. Fresh or disabled installations stay disabled. If Options says **Automatic replacement is disabled** for an existing configuration, both grouping and duplicate handling are off; use the existing-config activation block below to enable the controlled trial without replacing saved rules. Saving rules preserves the master activation flag. This flag takes effect immediately without a reload; Task 008's activation toggle UI is not implemented yet.
 2. Save a grouping rule `https://example.com/*` → `Group A`. In window 1, keep exactly one live group named `Group A` with at least one tab. Existing same-name groups are not automatically merged; rename/consolidate extras for this test.
 3. In window 2, open [the script-free local test page](docs/testing/cross-window-links.html) using Chrome’s Open File command (Cmd+O on macOS). Close older tabs at the two test URLs first so duplicate inheritance does not select another location.
 4. Click **Foreground test** normally. The incoming tab should move into the original Group A in window 1, become active, and bring window 1 forward. The group ID/title and the incoming tab ID are retained.
@@ -113,6 +113,19 @@ if (backup !== undefined) {
   await chrome.storage.local.set({chromeReHomeConfig: {...backup, enabled:false}});
 } // Missing configuration is already disabled.
 ```
+
+For an existing configuration that should be enabled for a controlled trial, use the service worker console to set only the master flag, preserving all saved rules:
+
+```js
+{
+  const key = 'chromeReHomeConfig';
+  const saved = (await chrome.storage.local.get(key))[key];
+  if (!saved) throw new Error('No saved configuration found.');
+  await chrome.storage.local.set({[key]: {...saved, enabled:true}});
+}
+```
+
+The change takes effect immediately; no reload is needed. Verify Options no longer says **Automatic replacement is disabled** before continuing the trial.
 
 Verify options says disabled, then reload the unpacked extension after building. Reopening DevTools loses the `backup` binding; keep the exported wrapper. Enable a fresh explicit trial with schema 4:
 
