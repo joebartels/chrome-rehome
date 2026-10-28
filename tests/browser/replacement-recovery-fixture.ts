@@ -44,8 +44,13 @@ const observations: unknown[] = [];
 Object.defineProperty(globalThis, '__presentationObservations', {value:observations});
 function record(value: unknown) { observations.push(value); if(observations.length > 1000) observations.shift(); }
 const native = createPlacementAdapter(chrome);
+let moveCount = 0;
 const port = {
   ...native,
+  async moveTab(...args: Parameters<typeof native.moveTab>) {
+    await native.moveTab(...args);
+    await hold(`placement:native-fulfilled:move:${++moveCount}`);
+  },
   // Legacy structural sequence fixtures deliberately use unknown attention. New
   // headed presentation fixtures explicitly opt into the production native reader.
   async readPresentation() {

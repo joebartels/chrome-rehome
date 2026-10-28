@@ -7,10 +7,12 @@ import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { createExternalAppLauncher } from './external-app-launch';
+import type { ReplacementJournal } from '../../src/execution/journal';
+import { createForegroundHelper } from './foreground-helper';
 import { cleanupExternalAppTrial } from './external-app-cleanup';
 
-type NativeCase = 'warm HTTP' | 'warm HTTPS' | 'HTTP to HTTPS final identity' | 'stopped-worker HTTPS' | 'disabled HTTPS control' | 'remote grouped HTTPS' | 'remote ungrouped HTTPS' | 'remote rule HTTPS';
-const cases: NativeCase[] = ['warm HTTP', 'warm HTTPS', 'HTTP to HTTPS final identity', 'stopped-worker HTTPS', 'disabled HTTPS control', 'remote grouped HTTPS', 'remote ungrouped HTTPS', 'remote rule HTTPS'];
+type NativeCase = 'warm HTTP' | 'warm HTTPS' | 'HTTP to HTTPS final identity' | 'stopped-worker HTTPS' | 'disabled HTTPS control' | 'remote grouped HTTPS' | 'remote ungrouped HTTPS' | 'remote rule HTTPS' | 'remote foreground-helper HTTPS history';
+const cases: NativeCase[] = ['warm HTTP', 'warm HTTPS', 'HTTP to HTTPS final identity', 'stopped-worker HTTPS', 'disabled HTTPS control', 'remote grouped HTTPS', 'remote ungrouped HTTPS', 'remote rule HTTPS', 'remote foreground-helper HTTPS history'];
 
 async function config(options: Page, url: string, enabled: boolean, title = 'External') {
   await options.evaluate(({ enabled, url, title }) => chrome.storage.local.set({
@@ -31,6 +33,8 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
   let http: ReturnType<typeof createHttpServer> | undefined;
   let https: ReturnType<typeof createHttpsServer> | undefined;
   let testFailed = false;
+  let helper: Awaited<ReturnType<typeof createForegroundHelper>> | undefined;
+  const helperCase = name === 'remote foreground-helper HTTPS history';
   try {
     launcher = await createExternalAppLauncher(chromium.executablePath());
     const key = join(root, 'key.pem');
@@ -39,7 +43,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
       '-keyout', key, '-out', cert, '-days', '1', '-subj', '/CN=localhost']);
     https = createHttpsServer({ key: await readFile(key), cert: await readFile(cert) }, (_req, res) => {
       res.writeHead(200, { 'content-type': 'text/html', 'cache-control': 'no-store' });
-      res.end('<title>Native external trial</title>');
+      res.end('<title>Native external trial</title>' + (helperCase ? `<script>let left=20;const timer=setInterval(()=>{history.replaceState({},'',location.href);if(--left===0)clearInterval(timer)},5)</script>` : ''));
     });
     await new Promise<void>(done => https!.listen(0, '127.0.0.1', done));
     const httpsOrigin = `https://127.0.0.1:${(https.address() as { port: number }).port}`;
@@ -70,7 +74,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
     const tabs = () => options.evaluate(() => chrome.tabs.query({ windowType: 'normal' }));
     await config(options, finalUrl, false);
     const remote = name.startsWith('remote ');
-    const ruleOnly = name === 'remote rule HTTPS';
+    const ruleOnly = name === 'remote rule HTTPS' || helperCase;
     const ungrouped = name === 'remote ungrouped HTTPS';
     const older = await context.newPage();
     await older.goto(ruleOnly ? finalUrl.replace('/target','/member') : finalUrl);
@@ -127,6 +131,23 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
       await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('stopped');
       workerStatus.push('stopped');
     }
+    let helperBeforeWindows: chrome.windows.Window[] | undefined;
+    if (helperCase) {
+      await worker.evaluate(() => {
+        const events: unknown[] = [];
+        Reflect.set(globalThis, '__externalHistoryEvidence', events);
+        chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
+          events.push({ kind: 'history', at: Date.now(), tabId: details.tabId, lifecycle: details.documentLifecycle, transition: details.transitionType });
+        });
+        chrome.storage.onChanged.addListener((changes, area) => {
+          const journal = changes.chromeReHomeReplacementJournal?.newValue as ReplacementJournal | undefined;
+          if (area === 'session' && journal) events.push({ kind: 'journal', at: Date.now(), phase: journal.completedPhase, pending: journal.pending?.kind, terminal: journal.terminal });
+        });
+      });
+      helper = await createForegroundHelper();
+      await expect.poll(() => options.evaluate(async () => (await chrome.windows.getAll({ windowTypes: ['normal'] })).some(w => w.focused))).toBe(false);
+      helperBeforeWindows = await options.evaluate(() => chrome.windows.getAll({ windowTypes: ['normal'] }));
+    }
     // Register before OS open: an existing duplicate or its initial load cannot satisfy this event.
     const openedPage = context.waitForEvent('page');
     // The only external navigation operation is LaunchServices; no worker evaluation occurs here.
@@ -162,6 +183,13 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
           if(!ungrouped)expect(await options.evaluate(id=>chrome.tabGroups.get(id).then(g=>g.collapsed),manualGroupId)).toBe(false);
         }
       }
+      if (helperCase) {
+        await expect.poll(() => worker.evaluate(() => (Reflect.get(globalThis, '__externalHistoryEvidence') as { kind: string }[]).filter(e => e.kind === 'history').length)).toBeGreaterThan(0);
+        const events = await worker.evaluate(() => Reflect.get(globalThis, '__externalHistoryEvidence')) as { kind: string; at: number; phase?: string; tabId?: number }[];
+        const prepared = events.find(e => e.kind === 'journal' && e.phase === 'prepared')!;
+        const completed = events.find(e => e.kind === 'journal' && e.phase === 'completed')!;
+        expect(events.some(e => e.kind === 'history' && e.tabId === survivorId && e.at >= prepared.at && e.at <= completed.at)).toBe(true);
+      }
       const expectedIds = [...before.map(tab => tab.id!), survivorId].filter(id => disabled || ruleOnly || id !== oldId).sort((a, b) => a - b);
       expect((await tabs()).map(tab => tab.id!).sort((a, b) => a - b)).toEqual(expectedIds);
     } finally {
@@ -171,6 +199,8 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
         version: context.browser()?.version(),
         launch: ['/usr/bin/open', '-a', dirname(dirname(dirname(launcher.executablePath))), launchUrl],
         profile: join(root, 'profile'), finalUrl, before, beforeWindows, remoteSetup, oldId, survivorId, workerStatus,
+        helperBefore: helper?.status, helperBeforeWindows,
+        historyEvidence: helperCase ? await worker.evaluate(() => Reflect.get(globalThis, '__externalHistoryEvidence')) : undefined,
         afterWindows:await options.evaluate(()=>chrome.windows.getAll({windowTypes:['normal']})),
         externalPage: { url: external.url(), readyState: await external.evaluate(() => document.readyState) },
         after: await tabs(), groups: await options.evaluate(() => chrome.tabGroups.query({}))
@@ -182,13 +212,14 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
     testFailed = true;
     throw error;
   } finally {
+    await helper?.dispose();
     await cleanupExternalAppTrial({ context, servers: [http, https], launcher, profileRoot: root }, testFailed);
   }
 }
 
 for (const name of cases) {
   const outcome = name === 'disabled HTTPS control' ? 'retains both tabs ungrouped'
-    : name === 'remote rule HTTPS' ? 'reuses remote Group A and presents incoming tab'
+    : name === 'remote rule HTTPS' || name === 'remote foreground-helper HTTPS history' ? 'reuses remote Group A and presents incoming tab'
     : name === 'remote ungrouped HTTPS' ? 'inherits remote ungrouped location and presents incoming tab'
     : 'inherits manual group and closes older duplicate';
   test(`native external ${name} ${outcome}`, async ({}, testInfo) => {

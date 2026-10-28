@@ -503,3 +503,66 @@ for(const phase of ['pending:activate:4','settled:activate:4','verified:activate
     },true);
   });
 }
+
+
+for (const mode of ['foreground', 'background', 'changed-url'] as const) {
+  test(`native history during corrective move preserves ${mode === 'changed-url' ? 'changed-URL cancellation' : mode + ' intent'}`, async ({}, info) => {
+    test.skip(process.platform !== 'darwin', 'Requires macOS headed native focus.');
+    await trial(true, async f => {
+      const setup = await f.options.evaluate(async origin => {
+        const source = await chrome.windows.create({ url: [origin + '/before', origin + '/source-spare'], focused: true });
+        const destination = await chrome.windows.create({ url: Array.from({ length: 7 }, (_, i) => origin + (i === 3 ? '/target' : '/member-' + i)), focused: false });
+        const src = await chrome.tabs.query({ windowId: source!.id });
+        const dst = await chrome.tabs.query({ windowId: destination!.id });
+        const group = await chrome.tabs.group({ tabIds: [dst[2]!.id!, dst[3]!.id!, dst[4]!.id!], createProperties: { windowId: destination!.id! } });
+        await chrome.tabGroups.update(group, { title: 'Target' });
+        await chrome.tabs.update(dst[6]!.id!, { active: true });
+        await chrome.tabs.update(src[0]!.id!, { active: true });
+        await chrome.windows.update(source!.id!, { focused: true });
+        return { source: source!.id!, destination: destination!.id!, before: src[0]!.id!, old: dst[3]!.id!, destinationActive: dst[6]!.id!, group };
+      }, origin);
+      await expect.poll(async () => (await tabs(f.options)).every(t => t.status === 'complete')).toBe(true);
+      const before = f.context.pages().find(p => p.url() === origin + '/before')!;
+      await f.options.evaluate(async origin => chrome.storage.local.set({ chromeReHomeConfig: {
+        schemaVersion: 4, enabled: true, groupingRules: [{ enabled: true, pattern: origin + '/target', group: 'Target' }], duplicateRules: []
+      } }), origin);
+      await expect(f.options.getByRole('status')).toContainText('enabled');
+      const token = await arm(f.options, 'placement:native-fulfilled:move:2', undefined, true);
+      const initial = await f.options.evaluate(async () => chrome.windows.getAll({ populate: true, windowTypes: ['normal'] }));
+      expect(initial.filter(w => w.focused).map(w => w.id)).toEqual([setup.source]);
+      expect(initial.find(w => w.id === setup.source)?.tabs?.filter(t => t.active).map(t => t.id)).toEqual([setup.before]);
+      const opened = mode === 'background' ? f.context.waitForEvent('page') : undefined;
+      await before.getByRole('link').click(mode === 'background' ? { modifiers: ['Meta'] } : {});
+      const incoming = opened ? await opened : before;
+      await reached(f.options, token);
+      const winner = (await tabs(f.options)).find(t => t.url === origin + '/target' && t.id !== setup.old)!;
+      await f.worker.evaluate(tabId => {
+        chrome.webNavigation.onHistoryStateUpdated.addListener(details => {
+          if (details.tabId === tabId) Reflect.set(globalThis, '__historyDuringMove', {
+            tabId: details.tabId, lifecycle: details.documentLifecycle, transition: details.transitionType, qualifiers: details.transitionQualifiers
+          });
+        });
+      }, winner.id!);
+      await incoming.evaluate(changed => history.replaceState({}, '', changed ? '/changed' : location.href), mode === 'changed-url');
+      await expect.poll(() => f.worker.evaluate(() => Reflect.get(globalThis, '__historyDuringMove'))).toMatchObject({ tabId: winner.id, lifecycle: 'active', transition: 'link', qualifiers: [] });
+      await release(f.options);
+      await expect.poll(() => f.options.evaluate(async () => (await chrome.storage.session.get('chromeReHomeFixtureDone')).chromeReHomeFixtureDone)).toBeTruthy();
+      const observations = await f.worker.evaluate(() => Reflect.get(globalThis, '__presentationObservations')) as { journal?: ReplacementJournal }[];
+      const final = await f.options.evaluate(async () => ({ tabs: await chrome.tabs.query({ windowType: 'normal' }), windows: await chrome.windows.getAll({ windowTypes: ['normal'] }) }));
+      await evidence(info, 'history-corrective-move', { mode, version: f.context.browser()!.version(), setup, winnerId: winner.id, observations, final,
+        nativeOutstanding: false, gateMeaning: 'native corrective move fulfilled; test wrapper held before settlement while real history event is delivered' });
+      const presented = observations.flatMap(o => o.journal?.pending ? [o.journal.pending.kind] : []).filter(kind => kind === 'activate' || kind === 'focus');
+      if (mode === 'changed-url') {
+        expect(final.tabs.some(t => t.id === setup.old)).toBe(true);
+        expect(observations.some(o => o.journal?.terminal === 'abandoned' && o.journal.sequence === 3)).toBe(true);
+        expect(presented).toEqual([]);
+      } else {
+        expect(final.tabs.some(t => t.id === setup.old)).toBe(false);
+        expect(final.tabs.find(t => t.id === winner.id)).toMatchObject({ windowId: setup.destination, groupId: setup.group, active: mode === 'foreground' });
+        expect(presented).toEqual(mode === 'foreground' ? ['activate', 'focus'] : []);
+      }
+      expect(final.windows.filter(w => w.focused).map(w => w.id)).toEqual([mode === 'foreground' ? setup.destination : setup.source]);
+      if (mode === 'background') expect(final.tabs.filter(t => t.active && [setup.source, setup.destination].includes(t.windowId)).map(t => t.id).sort()).toEqual([setup.before, setup.destinationActive].sort());
+    }, true);
+  });
+}

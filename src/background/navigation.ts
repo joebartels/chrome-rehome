@@ -78,23 +78,32 @@ export function createNavigationTracker() {
     observe(input: NavigationInput): Navigation | undefined {
       if (input.frameId !== 0 || !validId(input.tabId)) return;
       const previous = states.get(input.tabId);
-      if (repeated(previous?.fingerprint, input) || !advance()) return;
-      const state: TabState = { fingerprint: fingerprint(input), blocked: previous?.blocked ?? false,
-        ...(previous?.provenance ? { provenance: previous.provenance } : {}) };
-      states.set(input.tabId, state);
+      if (repeated(previous?.fingerprint, input)) return;
       const href = nativeHref(input.url);
       const metadata = href !== undefined && Number.isFinite(input.timeStamp)
         && typeof input.documentId === 'string' && input.documentId.length > 0
         && input.documentLifecycle === 'active' && (input.frameType === undefined || input.frameType === 'outermost_frame')
         && typeof input.transitionType === 'string' && known.has(input.transitionType)
         && Array.isArray(input.transitionQualifiers) && [...input.transitionQualifiers].every((value) => qualifiers.has(value));
+      const eligible = metadata && admitted.has(input.transitionType!)
+        && (!input.transitionQualifiers!.includes('client_redirect') || previous?.provenance !== undefined);
+      // A validated no-op must not erase the operation that is still presenting
+      // this exact document/URL. Missing or revoked ownership cannot be revived.
+      if (eligible && (input.kind === 'history' || input.kind === 'fragment') && previous && !previous.blocked
+        && previous.navigation?.url === input.url && previous.navigation.documentId === input.documentId
+        && previous.provenance?.documentId === input.documentId && previous.provenance.href === href) {
+        previous.fingerprint = fingerprint(input);
+        return;
+      }
+      if (!advance()) return;
+      const state: TabState = { fingerprint: fingerprint(input), blocked: previous?.blocked ?? false,
+        ...(previous?.provenance ? { provenance: previous.provenance } : {}) };
+      states.set(input.tabId, state);
       if (!metadata || !['committed', 'history', 'fragment'].includes(input.kind)) {
         delete state.provenance;
         state.blocked = true;
         return;
       }
-      const eligible = admitted.has(input.transitionType!)
-        && (!input.transitionQualifiers!.includes('client_redirect') || previous?.provenance !== undefined);
       if (input.kind === 'committed') {
         state.blocked = false;
         delete state.provenance;

@@ -169,7 +169,8 @@ describe('navigation eligibility and runtime ownership', () => {
     expect(tracker.observe(input({ kind }))).toBeUndefined();
     const committed = tracker.observe(input({ timeStamp: 101 }))!;
     expect(tracker.observe(input({ kind, timeStamp: 102 }))).toBeUndefined();
-    expect(tracker.isCurrent(committed)).toBe(false);
+    // Valid unchanged history preserves ownership but still cannot create work.
+    expect(tracker.isCurrent(committed)).toBe(true);
     const changed = tracker.observe(input({ kind, timeStamp: 103, url: 'https://example.com/changed' }))!;
     expect(changed).toMatchObject({ kind, observedSequence: 2 });
     expect(tracker.observe(input({ kind, documentId: 'old', timeStamp: 104, url: 'https://example.com/old' }))).toBeUndefined();
@@ -177,6 +178,93 @@ describe('navigation eligibility and runtime ownership', () => {
     tracker.invalidate(7);
     expect(tracker.observe(input({ kind, timeStamp: 106, url: 'https://example.com/pending' }))).toBeUndefined();
     expect(tracker.view().blockedTabIds).toEqual([7]);
+  });
+
+  it.each(['history', 'fragment'] as const)('unchanged %s preserves the current navigation, view and removal lease without new work', kind => {
+    const tracker = createNavigationTracker();
+    const committed = tracker.observe(input())!;
+    const view = tracker.view();
+    const lease = tracker.createRemovalLease(view, [8]);
+    const noOp = input({ kind, timeStamp: 101 });
+    expect(tracker.observe(noOp)).toBeUndefined();
+    expect(tracker.observe(noOp)).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(true);
+    expect(tracker.isViewCurrent(view)).toBe(true);
+    expect(lease.isCurrent()).toBe(true);
+    expect(tracker.view().navigations).toEqual([committed]);
+    expect(tracker.view().navigations[0]).toBe(committed);
+    const changed = tracker.observe(input({ kind, timeStamp: 102, url: 'https://example.com/changed' }))!;
+    expect(changed).toMatchObject({ generation: 2, observedSequence: 2 });
+    expect(tracker.isCurrent(committed)).toBe(false);
+    expect(lease.isCurrent()).toBe(false);
+    expect(tracker.observe(input({ kind, timeStamp: 103, url: changed.url }))).toBeUndefined();
+    expect(tracker.isCurrent(changed)).toBe(true);
+  });
+
+  it('an unchanged update retains the latest fingerprint without deduplicating a subsequent real commit', () => {
+    const tracker = createNavigationTracker();
+    tracker.observe(input());
+    tracker.observe(input({ kind: 'history', timeStamp: 101 }));
+    expect(tracker.observe(input())).toMatchObject({ generation: 2, observedSequence: 2 });
+  });
+
+  it('equal parsed href with changed URL bytes still revokes strict placement authority', () => {
+    const tracker = createNavigationTracker();
+    const committed = tracker.observe(input({ url: 'http://EXAMPLE.com:80/' }))!;
+    const view = tracker.view();
+    const lease = tracker.createRemovalLease(view, [8]);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 101, url: 'http://example.com/' }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(false);
+    expect(tracker.isViewCurrent(view)).toBe(false);
+    expect(lease.isCurrent()).toBe(false);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 102, url: committed.url }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(false);
+  });
+
+  it.each([
+    { documentId: 'other' }, { documentLifecycle: 'prerender' }, { frameType: 'sub_frame' },
+    { transitionType: 'reload' }, { transitionType: 'unknown' }, { transitionQualifiers: ['unknown'] },
+    { transitionQualifiers: Array<string>(1) }, { transitionQualifiers: undefined },
+    { documentId: undefined }, { timeStamp: Number.NaN }, { kind: 'unknown' as 'history' },
+  ] as Partial<NavigationInput>[])('unchanged URL cannot bypass invalid or ineligible update metadata: %j', change => {
+    const tracker = createNavigationTracker();
+    const committed = tracker.observe(input())!;
+    const view = tracker.view();
+    const lease = tracker.createRemovalLease(view, [8]);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 101, ...change }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(false);
+    expect(tracker.isViewCurrent(view)).toBe(false);
+    expect(lease.isCurrent()).toBe(false);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 102 }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(false);
+  });
+
+  it.each(['pending', 'removed', 'replaced', 'missing-navigation'])('unchanged history cannot revive %s ownership', reason => {
+    const tracker = createNavigationTracker();
+    const committed = tracker.observe(input())!;
+    const view = tracker.view();
+    const lease = tracker.createRemovalLease(view, [8]);
+    if (reason === 'pending') tracker.invalidate(7);
+    else if (reason === 'removed') tracker.forget(7);
+    else if (reason === 'replaced') tracker.replace(9, 7);
+    else tracker.observe(input({ kind: 'history', timeStamp: 101, documentId: 'other' }));
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 102 }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(false);
+    expect(tracker.isViewCurrent(view)).toBe(false);
+    expect(lease.isCurrent()).toBe(false);
+  });
+
+  it('a valid unchanged update cannot refresh a stale whole-view or removal lease', () => {
+    const tracker = createNavigationTracker();
+    const committed = tracker.observe(input())!;
+    const view = tracker.view();
+    const lease = tracker.createRemovalLease(view, [8]);
+    tracker.invalidate(99);
+    expect(tracker.observe(input({ kind: 'history', timeStamp: 101 }))).toBeUndefined();
+    expect(tracker.isCurrent(committed)).toBe(true);
+    expect(tracker.isViewCurrent(view)).toBe(false);
+    expect(lease.isCurrent()).toBe(false);
+    expect(() => lease.expectRemoval(8)).toThrow();
   });
 
   it.each(['history', 'fragment'] as const)('reloads cannot bootstrap %s provenance', (kind) => {
