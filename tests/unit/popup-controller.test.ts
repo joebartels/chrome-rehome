@@ -1,5 +1,6 @@
 import { expect, test, vi } from 'vitest';
 import { createPopupController } from '../../src/popup/controller';
+import { createPopupView } from '../../src/popup/view';
 import type { ControlReply, ControlStatus, TargetHint } from '../../src/controls/protocol';
 const hint = { tabId: 1, windowId: 2, incognito: false };
 const target = { receipt: { ...hint, documentId: 'doc' }, protected: false, audible: true, pinned: true };
@@ -74,4 +75,23 @@ test('disposal while a mutation settles cannot publish or read again', async () 
   const s=setup(); await s.controller.refresh(); const pending=deferred<ControlReply>(); s.client.setEnabled.mockImplementationOnce(()=>pending.promise);
   const command=s.controller.setEnabled(true); s.controller.dispose(); const reads=s.client.getStatus.mock.calls.length; const snapshot=s.controller.getState();
   pending.resolve(reply(status('active',2))); await command; expect(s.client.getStatus).toHaveBeenCalledTimes(reads); expect(s.controller.getState()).toEqual(snapshot);
+});
+
+test('first connection failure stays unavailable without a worker version and a successful refresh reconnects', async () => {
+  const s = setup(); s.select(); s.client.getStatus.mockRejectedValueOnce(Error('connection lost'));
+  await s.controller.refresh();
+  expect(s.controller.getState()).toMatchObject({ connection: 'unavailable', targetChecking: false, busy: false });
+  expect(s.controller.getState().status).toBeUndefined(); expect(s.controller.getState().target).toBeUndefined();
+  expect(createPopupView(s.controller.getState())).toMatchObject({ pauseDisabled: true, resumeDisabled: true, protectionDisabled: true });
+  await s.controller.setEnabled(false); await s.controller.setEnabled(true); await s.controller.protect(true);
+  expect(s.client.setEnabled).not.toHaveBeenCalled(); expect(s.client.setTabProtected).not.toHaveBeenCalled();
+  expect(s.client.getStatus).toHaveBeenCalledTimes(1);
+  s.state(status('active', 2)); s.select(hint); const pending = deferred<ControlReply>();
+  s.client.getStatus.mockImplementationOnce(() => pending.promise);
+  const refresh = s.controller.refresh();
+  expect(createPopupView(s.controller.getState()).heading).toMatch(/checking/i);
+  pending.resolve(reply(status('active', 2))); await refresh;
+  expect(s.controller.getState()).toMatchObject({ connection: 'connected', status: status('active', 2), target, message: '' });
+  expect(createPopupView(s.controller.getState())).toMatchObject({ heading: 'Active', pauseDisabled: false, protectionDisabled: false });
+  s.controller.dispose();
 });

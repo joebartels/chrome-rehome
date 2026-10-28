@@ -6,6 +6,7 @@ type Client = {
   setTabProtected(expected: ControlVersion, target: TabReceipt, value: boolean): Promise<ControlReply>;
 };
 export type PopupState = Readonly<{
+  connection: 'checking' | 'connected' | 'unavailable';
   status?: ControlStatus | undefined;
   target?: ControlStatus['target'] | undefined;
   targetChecking: boolean;
@@ -18,7 +19,7 @@ export function createPopupController(deps: {
   openSettings(): Promise<void>;
   subscribe(listener: () => void): () => void;
 }) {
-  let state: PopupState = Object.freeze({ targetChecking: true, busy: false, message: '' });
+  let state: PopupState = Object.freeze({ connection: 'checking', targetChecking: true, busy: false, message: '' });
   let disposed = false;
   let reads = 0;
   let operation = 0;
@@ -32,19 +33,20 @@ export function createPopupController(deps: {
     return Object.freeze({ version: Object.freeze({ ...status.version }), phase: status.phase, savedEnabled: status.savedEnabled });
   }
   function unavailable(): void {
-    publish({ ...state, ...(state.status ? { status: { ...state.status, phase: 'unavailable' } } : {}),
+    publish({ ...state, connection: 'unavailable', ...(state.status ? { status: { ...state.status, phase: 'unavailable' } } : {}),
       target: undefined, targetChecking: false, message: 'Status unavailable. Refresh to reconnect. No command was retried.' });
   }
   async function refresh(): Promise<void> {
     if (disposed) return;
     const request = ++reads;
-    publish({ ...state, ...(state.status ? { status: { ...state.status, phase: 'checking' } } : {}), target: undefined, targetChecking: true });
+    publish({ ...state, connection: 'checking', message: state.connection === 'unavailable' ? '' : state.message,
+      ...(state.status ? { status: { ...state.status, phase: 'checking' } } : {}), target: undefined, targetChecking: true });
     const current = () => !disposed && reads === request;
     // The global read must render without waiting for document/selection lookup.
     const globalRead = deps.client.getStatus().then(reply => {
       if (!current()) return;
       if (state.status?.version.workerId === reply.status.version.workerId && state.status.version.revision > reply.status.version.revision) return;
-      publish({ ...state, status: global(reply.status) });
+      publish({ ...state, connection: 'connected', status: global(reply.status) });
     }).catch(() => { if (current()) unavailable(); });
     try {
       const hint = await deps.currentTarget();

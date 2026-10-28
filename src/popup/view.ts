@@ -1,13 +1,16 @@
 import type { createPopupController, PopupState } from './controller';
 
 export function createPopupView(state: PopupState) {
-  const phase = state.status?.phase ?? 'checking';
+  const phase = state.status?.phase ?? (state.connection === 'unavailable' ? 'unavailable' : 'checking');
+  const pauseDisabled = state.busy || !state.status;
   const ready = phase === 'active' || phase === 'paused';
   const copy = {
     checking: ['Checking processing status', 'Readiness is being checked. Saved settings alone do not confirm processing.'],
     active: ['Active', 'Automatic grouping and duplicate closure are active.'],
     paused: ['Paused', 'Automatic grouping and duplicate closure are paused. Resume applies only to future eligible navigation.'],
-    unavailable: ['Processing unavailable', 'Configuration or protection readiness could not be verified. Explicit Pause may safely verify a paused configuration. Refresh only reads current status.'],
+    unavailable: ['Processing unavailable', state.status
+      ? 'Configuration or protection readiness could not be verified. Explicit Pause may safely verify a paused configuration. Refresh only reads current status.'
+      : 'Could not connect to processing status. Refresh to reconnect.'],
     blocked: ['Recovery blocked', 'An interrupted operation prevents processing. Pause cannot clear recovery. Chrome restart may reconcile settled work; uncertain operations stay blocked.'],
   }[phase]!;
   const automatic = [state.target?.pinned ? 'Pinned tab exclusion applies.' : '', state.target?.audible ? 'Audio exclusion applies while this tab is audible.' : ''].filter(Boolean).join(' ');
@@ -15,12 +18,12 @@ export function createPopupView(state: PopupState) {
     heading: state.busy ? 'Applying change…' : copy[0]!,
     description: state.busy ? 'Verifying the requested change. Already issued browser actions may finish.' : copy[1]!,
     message: state.message,
-    pauseDisabled: state.busy || !state.status,
+    pauseDisabled,
     resumeDisabled: state.busy || phase !== 'paused',
     protectionDisabled: state.busy || !ready || !state.target,
     protected: state.target?.protected ?? false,
     targetMessage: state.target ? [state.target.protected ? 'Manual protection is on.' : 'Manual protection is off.', automatic].filter(Boolean).join(' ')
-      : state.targetChecking ? 'Checking the selected tab…' : 'Protection is unavailable for this selected document. Global Pause remains available.',
+      : state.targetChecking ? 'Checking the selected tab…' : 'Protection is unavailable for this selected document.' + (pauseDisabled ? '' : ' Global Pause remains available.'),
     severity: phase === 'unavailable' || phase === 'blocked' ? 'error' : 'info',
   };
 }
