@@ -1,3 +1,4 @@
+import { isProtected, type ProtectedIdentity } from './protections';
 export type NavigationToken = Readonly<{ epoch: symbol; tabId: number; generation: number }>;
 export type CandidateNavigation = NavigationToken & Readonly<{
   url: string; documentId: string; observedSequence: number;
@@ -6,7 +7,7 @@ export type NavigationView = Readonly<{
   epoch: symbol; revision: number; navigations: readonly CandidateNavigation[]; blockedTabIds: readonly number[];
 }>;
 export type CandidateTab = Readonly<{
-  id: number; windowId: number; index: number; groupId: number; pinned: boolean; incognito: boolean;
+  id: number; windowId: number; index: number; groupId: number; pinned: boolean; incognito: boolean; audible: boolean;
   url?: string; pendingUrl?: string | undefined;
 }>;
 export type DuplicateIdentity = Readonly<{
@@ -14,11 +15,11 @@ export type DuplicateIdentity = Readonly<{
 }>;
 export type CandidateSelection =
   | Readonly<{ kind: 'skip'; reason: 'invalid-input' | 'stale-trigger' | 'unavailable-trigger' | 'superseded' | 'no-duplicates' }>
-  | Readonly<{ kind: 'selected'; epoch: symbol; revision: number; winner: CandidateTab;
+  | Readonly<{ kind: 'selected'; closureEligible: boolean; epoch: symbol; revision: number; winner: CandidateTab;
       navigation: CandidateNavigation; duplicates: readonly CandidateTab[]; anchor: CandidateTab }>;
 
 export type SingleCandidate = Readonly<{
-  kind: 'single'; epoch: symbol; revision: number; winner: CandidateTab; navigation: CandidateNavigation; duplicates: readonly [];
+  kind: 'single'; closureEligible: boolean; epoch: symbol; revision: number; winner: CandidateTab; navigation: CandidateNavigation; duplicates: readonly [];
 }>;
 export type PlacementSelection = Extract<CandidateSelection, { kind: 'selected' }> | SingleCandidate;
 
@@ -40,7 +41,7 @@ function validNavigation(value: CandidateNavigation): boolean {
 function validTab(value: CandidateTab): boolean {
   return !!value && validId(value.id) && validId(value.windowId) && validId(value.index)
     && Number.isSafeInteger(value.groupId) && value.groupId >= -1
-    && typeof value.pinned === 'boolean' && typeof value.incognito === 'boolean';
+    && typeof value.audible === 'boolean' && typeof value.pinned === 'boolean' && typeof value.incognito === 'boolean';
 }
 function sameObservation(a: CandidateNavigation, b: CandidateNavigation): boolean {
   return a.epoch === b.epoch && a.tabId === b.tabId && a.generation === b.generation
@@ -48,15 +49,15 @@ function sameObservation(a: CandidateNavigation, b: CandidateNavigation): boolea
 }
 function copyTab(tab: CandidateTab): CandidateTab {
   return Object.freeze({ id: tab.id, windowId: tab.windowId, index: tab.index, groupId: tab.groupId,
-    pinned: tab.pinned, incognito: tab.incognito, ...(tab.url === undefined ? {} : { url: tab.url }),
+    pinned: tab.pinned, audible: tab.audible, incognito: tab.incognito, ...(tab.url === undefined ? {} : { url: tab.url }),
     ...('pendingUrl' in tab ? { pendingUrl: tab.pendingUrl } : {}) });
 }
 
 export function selectCandidates(trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity): CandidateSelection;
-export function selectCandidates(trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity, options: { allowNoDuplicates: true }): CandidateSelection | SingleCandidate;
+export function selectCandidates(trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity, options: { allowNoDuplicates: true; protectedTabs?: readonly ProtectedIdentity[] }): CandidateSelection | SingleCandidate;
 export function selectCandidates(
   trigger: CandidateNavigation, tabs: readonly CandidateTab[], view: NavigationView, identity: DuplicateIdentity,
-  options?: { allowNoDuplicates: true },
+  options?: { allowNoDuplicates: true; protectedTabs?: readonly ProtectedIdentity[] },
 ): CandidateSelection | SingleCandidate {
   const skip = (reason: Extract<CandidateSelection, { kind: 'skip' }>['reason']): CandidateSelection => Object.freeze({ kind: 'skip', reason });
   if (!validNavigation(trigger) || !view || typeof view.epoch !== 'symbol' || !validId(view.revision)
@@ -87,7 +88,7 @@ export function selectCandidates(
     return !event || nativeHref(event.url) === href;
   }
   const triggerTab = byTab.get(trigger.tabId);
-  if (!triggerTab || !available(triggerTab)) return skip('unavailable-trigger');
+  if (!triggerTab || !available(triggerTab) || triggerTab.audible || isProtected(triggerTab, options?.protectedTabs ?? [])) return skip('unavailable-trigger');
   const key = identity.identify({ url: triggerTab.url!, incognito: triggerTab.incognito });
   if (key === undefined) return skip('unavailable-trigger');
   const matching = tabs.filter((tab) => available(tab) && tab.incognito === triggerTab.incognito
@@ -104,10 +105,10 @@ export function selectCandidates(
     || a.windowId - b.windowId || a.index - b.index || a.id - b.id).map(copyTab);
   if (!duplicates.length) {
     if (!options?.allowNoDuplicates) return skip('no-duplicates');
-    return Object.freeze({ kind: 'single', epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
+    return Object.freeze({ kind: 'single', closureEligible: true, epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
       navigation: Object.freeze({ ...live }), duplicates: Object.freeze([]) as readonly [] });
   }
-  return Object.freeze({ kind: 'selected', epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
+  return Object.freeze({ kind: 'selected', closureEligible: !duplicates.some(tab => tab.audible || isProtected(tab, options?.protectedTabs ?? [])), epoch: view.epoch, revision: view.revision, winner: copyTab(triggerTab),
     navigation: Object.freeze({ epoch: live.epoch, tabId: live.tabId, generation: live.generation, url: live.url,
       documentId: live.documentId, observedSequence: live.observedSequence }),
     duplicates: Object.freeze(duplicates), anchor: duplicates[0]! });

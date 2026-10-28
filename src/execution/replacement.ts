@@ -33,7 +33,7 @@ export function createReplacementExecutor({ port, journal }: {
       let placement: PlacementResult | undefined;
       let begun = false;
       let uncertainRemovalId: number | undefined;
-      let closureEligible = true;
+      let closureEligible = plan.closureEligible;
       function check(): void {
         if (!guard.isCurrent() || journal.isBlocked()) throw invalid;
       }
@@ -41,6 +41,11 @@ export function createReplacementExecutor({ port, journal }: {
       // In particular, a new snapshot never rebases participant locations or survivor order.
       function validate(snapshot: PlacementSnapshot, receipt: PlacementSnapshot, absent: readonly number[]): void {
         if (!coherentSnapshot(snapshot)) throw invalid;
+        for (const participant of [plan.winner, ...plan.duplicates]) {
+          if (absent.includes(participant.tab.id)) continue;
+          const tab = snapshot.tabs.find(tab => tab.id === participant.tab.id);
+          if (!tab || tab.audible !== participant.tab.audible || participant === plan.winner && tab.audible) throw invalid;
+        }
         // Absence is global: a target moved outside the affected windows is still alive.
         // Apply this to every bracket snapshot and the entire claimed removal prefix.
         if (snapshot.tabs.some(tab => absent.includes(tab.id))) {
@@ -77,7 +82,7 @@ export function createReplacementExecutor({ port, journal }: {
         for (const participant of [plan.winner, ...plan.duplicates]) {
           if (absent.includes(participant.tab.id)) continue;
           const tab = before.tabs.find(tab => tab.id === participant.tab.id);
-          if (!tab || tab.pinned || 'pendingUrl' in tab || tab.url !== participant.tab.url
+          if (!tab || tab.audible || tab.pinned || 'pendingUrl' in tab || tab.url !== participant.tab.url
             || tab.incognito !== participant.tab.incognito
             || before.groups.some(group => group.id === tab.groupId && group.shared === true)) throw invalid;
           check();

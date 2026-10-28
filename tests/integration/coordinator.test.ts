@@ -1,3 +1,4 @@
+import { protectionFixture } from '../fixtures/protections';
 import { describe, expect, it, vi } from 'vitest';
 import { createControlService } from '../../src/background/controls';
 import { createCoordinator } from '../../src/background/coordinator';
@@ -159,7 +160,7 @@ describe.each(['link', 'start_page'])('eligibility coordination races (%s)', tra
     const coordinator = createCoordinator({ config, tracker, queue: createOperationQueue(), diagnostics: createDiagnostics(),
       consume: async (event) => {
         const captured = tracker.view();
-        const tabs = [7, 8].map((id) => ({ id, windowId: 1, index: id - 7, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' }));
+        const tabs = [7, 8].map((id) => ({ id, windowId: 1, index: id - 7, groupId: -1, pinned: false, audible: false, incognito: false, url: 'https://example.com/' }));
         const result = selectCandidates(event, tabs, captured, compiler);
         if (result.kind === 'selected') selected.push(result.winner.id);
       } });
@@ -206,7 +207,7 @@ it.each(['link', 'start_page'])('cold %s waits for recovery readiness and stays 
 
 it('control pause is independent of native settlement and queued navigation cannot revive after resume', async () => {
   let raw = enabled; const config = createConfigRepository({ read: async () => raw, write: async value => { raw = value as typeof enabled; }, subscribe: () => () => {} });
-  const controls = createControlService({ config, workerId: 'worker', runtime: () => 'ready' });
+  const controls = createControlService({ ...protectionFixture(), config, workerId: 'worker', runtime: () => 'ready' });
   const gate = deferred<void>(); const started = deferred<void>(); let current = () => false; const consumed: number[] = [];
   const coordinator = createCoordinator({ config, controls, tracker: createNavigationTracker(), queue: createOperationQueue(), diagnostics: createDiagnostics(),
     consume: async (event, context) => { consumed.push(event.tabId); current = context.isCurrent; started.resolve(); await gate.promise; } });
@@ -218,4 +219,31 @@ it('control pause is independent of native settlement and queued navigation cann
   await controls.handle({ kind: 'set-enabled', expected: controls.getStatus().version, enabled: true });
   expect(current()).toBe(false); gate.resolve(); await Promise.all([first, queued]);
   expect(consumed).toEqual([7]); await coordinator.handle(createInput(9)); expect(consumed).toEqual([7, 9]);
+});
+
+it.each(['none', 'external', 'pause'])('startup pruning preserves first navigation unless actual %s change revokes it', async change => {
+  const f = protectionFixture({ version: 1, tabs: [{ tabId: 99, incognito: false }] });
+  const gate = deferred<{ tabId: number; incognito: boolean }[]>(); f.setLive(() => gate.promise);
+  let raw = enabled;
+  const config = createConfigRepository({ read: async () => raw, write: async value => { raw = value as typeof enabled; }, subscribe: () => () => {} });
+  const controls = createControlService({ ...f, config, workerId: 'worker', runtime: () => 'ready' });
+  const consumed: unknown[] = [];
+  const coordinator = createCoordinator({ config, controls, tracker: createNavigationTracker(), queue: createOperationQueue(), diagnostics: createDiagnostics(), consume: async (_event, context) => { consumed.push(context.protectedTabs); } });
+  const pending = coordinator.handle(createInput());
+  for (let i = 0; i < 8; i++) await Promise.resolve();
+  let pausing: Promise<unknown> | undefined;
+  if (change === 'external') f.external({ version: 1, tabs: [] });
+  if (change === 'pause') pausing = controls.handle({ kind: 'set-enabled', expected: controls.getStatus().version, enabled: false });
+  gate.resolve([{ tabId: 7, incognito: false }]); await pending; await pausing;
+  expect(consumed).toEqual(change === 'none' ? [[]] : []);
+});
+it('audio invalidation cancels captured work but retains trusted same-document history provenance', async () => {
+  const config = createConfigRepository({ read: async () => enabled, write: async () => {}, subscribe: () => () => {} });
+  const controls = createControlService({ ...protectionFixture(), config, workerId: 'worker', runtime: () => 'ready' });
+  const queue = createOperationQueue(); const tracker = createNavigationTracker(); const consumed: number[] = [];
+  const coordinator = createCoordinator({ config, controls, tracker, queue, diagnostics: createDiagnostics(), consume: async e => { consumed.push(e.tabId); } });
+  await coordinator.initialize(); const gate = deferred<void>(); const wait = queue.run(() => gate.promise);
+  const pending = coordinator.handle(createInput()); coordinator.invalidateControls(); gate.resolve(); await wait; await pending;
+  expect(consumed).toEqual([]);
+  await coordinator.handle({ ...createInput(7, 101), kind: 'history', url: 'https://example.com/next' }); expect(consumed).toEqual([7]);
 });

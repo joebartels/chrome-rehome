@@ -27,6 +27,7 @@ function fakeApi(read: () => Promise<Record<string, unknown>>) {
       onBeforeNavigate: event<(details: chrome.webNavigation.WebNavigationBaseCallbackDetails) => unknown>(),
     },
     tabs: {
+      onUpdated: event<(tabId: number, change: chrome.tabs.OnUpdatedInfo, tab: chrome.tabs.Tab) => unknown>(),
       onRemoved: event<(tabId: number, info: chrome.tabs.OnRemovedInfo) => unknown>(),
       onReplaced: event<(addedTabId: number, removedTabId: number) => unknown>(),
     },
@@ -185,7 +186,8 @@ describe('worker event registration', () => {
     }
     expect(fake.storage.local.get).toHaveBeenCalledTimes(1);
     expect(fake.storage.local.set).not.toHaveBeenCalled();
-    expect(fake.storage.session.get).toHaveBeenCalledExactlyOnceWith('chromeReHomeReplacementJournal');
+    expect(fake.storage.session.get).toHaveBeenCalledWith('chromeReHomeReplacementJournal');
+    expect(fake.storage.session.get).toHaveBeenCalledWith('chromeReHomeProtections');
     expect(fake.storage.session.set).not.toHaveBeenCalled();
     expect(fake.storage.session.remove).not.toHaveBeenCalled();
   });
@@ -237,4 +239,18 @@ describe('registry eligibility metadata and replacements', () => {
     await Promise.all(fake.fake.webNavigation.onCommitted.emit(navigation({ tabId: 8, timeStamp: 103 })));
     expect(fake.consumed).toHaveLength(1);
   });
+});
+
+it('audible changes revoke control authority without changing navigation provenance', async () => {
+  const f = setup(); registerEvents(f.api, f.coordinator, f.reportFailure);
+  await Promise.all(f.fake.webNavigation.onCommitted.emit(navigation()));
+  const trackerBefore = f.consumed[0];
+  const invalidate = vi.spyOn(f.coordinator, 'invalidateControls');
+  f.fake.tabs.onUpdated.emit(7, { audible: true }, {} as chrome.tabs.Tab);
+  f.fake.tabs.onUpdated.emit(7, { audible: false }, {} as chrome.tabs.Tab);
+  f.fake.tabs.onUpdated.emit(7, { title: 'unrelated' }, {} as chrome.tabs.Tab);
+  expect(invalidate).toHaveBeenCalledTimes(2);
+  await Promise.all(f.fake.webNavigation.onHistoryStateUpdated.emit(navigation({ timeStamp: 101, url: 'https://example.com/next' })));
+  expect(f.consumed.at(-1)?.documentId).toBe(trackerBefore?.documentId);
+  expect(f.consumed).toHaveLength(2);
 });

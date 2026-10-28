@@ -7,7 +7,7 @@ export const view = { epoch, revision: 1, navigations: [navigation], blockedTabI
 export const identity = compileDuplicateRules([]);
 if (identity.kind !== 'ready') throw Error('rules');
 export function tab(id: number, index: number, extra: Partial<CandidateTab & {active:boolean}> = {}): CandidateTab & {active?:boolean} {
-  return { id, index, windowId: 10, groupId: -1, pinned: false, incognito: false, url: navigation.url, ...extra };
+  return { id, index, windowId: 10, groupId: -1, pinned: false, audible: false, incognito: false, url: navigation.url, ...extra };
 }
 export function doc(id: number, extra: Partial<PlacementDocument> = {}): PlacementDocument {
   return { tabId: id, documentId: id === 1 ? 'one' : 'anchor', url: navigation.url, documentLifecycle: 'active', frameType: 'outermost_frame', parentFrameId: -1, errorOccurred: false, ...extra };

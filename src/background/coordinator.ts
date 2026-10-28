@@ -1,3 +1,4 @@
+import type { ProtectedIdentity } from '../controls/protocol';
 import type { createControlService } from './controls';
 import type { createConfigRepository } from '../config/repository';
 import type { Config, ConfigState } from '../config/schema';
@@ -5,7 +6,7 @@ import type { createDiagnostics } from '../diagnostics/diagnostics';
 import type { createNavigationTracker, Navigation, NavigationInput } from './navigation';
 import type { createOperationQueue } from './operation-queue';
 
-export type ConsumeContext = Readonly<{ config: Config; revision: number; isCurrent(): boolean }>;
+export type ConsumeContext = Readonly<{ config: Config; revision: number; protectedTabs: readonly ProtectedIdentity[]; isCurrent(): boolean }>;
 
 type Dependencies = {
   config: ReturnType<typeof createConfigRepository>;
@@ -62,7 +63,7 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
         const captured = config.getCurrent();
         if (captured?.state !== state) return;
         const capturedRevision = revision;
-        const context: ConsumeContext = Object.freeze({config:state.config,revision:captured.revision,isCurrent() {
+        const context: ConsumeContext = Object.freeze({config:state.config,revision:captured.revision,protectedTabs:controlCapture?.protectedTabs ?? Object.freeze([]),isCurrent() {
           const current = config.getCurrent();
           return !disposed && (!controls || !!controlCapture && controls.isCurrent(controlCapture)) && (!recovery || recovery.isReady()) && revision === capturedRevision && current?.revision === captured.revision
             && current.state === state && state?.kind === 'ready' && state.config.enabled && tracker.isCurrent(event);
@@ -70,9 +71,10 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
         await consume(event, context);
       });
     },
+    invalidateControls(): void { controls?.invalidate(); },
     invalidate(tabId: number): void { tracker.invalidate(tabId); },
-    replace(addedTabId: number, removedTabId: number): void { controls?.forget(removedTabId); tracker.replace(addedTabId, removedTabId); },
-    forget(tabId: number): void { controls?.forget(tabId); tracker.forget(tabId); },
+    replace(addedTabId: number, removedTabId: number): void { void controls?.forget(removedTabId); tracker.replace(addedTabId, removedTabId); },
+    forget(tabId: number): void { void controls?.forget(tabId); tracker.forget(tabId); },
     dispose(): void {
       if (disposed) return;
       disposed = true;

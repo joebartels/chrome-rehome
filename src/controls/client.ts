@@ -1,4 +1,4 @@
-import { isControlReply, type ControlCommand, type ControlReply, type ControlVersion, type RuleLists, type TabReceipt } from './protocol';
+import { isControlReply, type ControlCommand, type ControlReply, type ControlVersion, type RuleLists, type TabReceipt, type TargetHint } from './protocol';
 
 type Transport = { sendMessage(message: ControlCommand): Promise<unknown> };
 export function createControlClient(transport: Transport) {
@@ -9,7 +9,7 @@ export function createControlClient(transport: Transport) {
     return response;
   }
   return {
-    getStatus: () => send({ kind: 'get-status' }),
+    getStatus: (target?: TargetHint) => send({ kind: 'get-status', ...(target ? { target } : {}) }),
     setEnabled: (expected: ControlVersion, enabled: boolean) => send({ kind: 'set-enabled', expected, enabled }),
     setTabProtected: (expected: ControlVersion, target: TabReceipt, protectedValue: boolean) =>
       send({ kind: 'set-tab-protected', expected, target, protected: protectedValue }),

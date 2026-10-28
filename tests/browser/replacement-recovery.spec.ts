@@ -1,3 +1,4 @@
+import { activateOwnedBrowser } from './owned-browser-focus';
 import { test, expect, chromium, type BrowserContext, type Page, type Worker, type TestInfo } from '@playwright/test';
 import { createServer } from 'node:http';
 import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -58,6 +59,7 @@ async function trial(fixture: boolean, run: (f: Trial) => Promise<void>, headed 
       headless: !headed,
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
+    if (headed) await activateOwnedBrowser(context);
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
     const extensionId = new URL(worker.url()).host;
     const options = await context.newPage();

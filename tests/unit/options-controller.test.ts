@@ -1,3 +1,4 @@
+import { protectionFixture } from '../fixtures/protections';
 import { describe, expect, it } from 'vitest';
 import { createConfigRepository, type ConfigStorage } from '../../src/config/repository';
 import type { Config } from '../../src/config/schema';
@@ -311,7 +312,7 @@ it('production rules callback writes via worker and preserves a pause racing the
   const read = async () => raw;
   const subscribe = (listener: () => void) => { callbacks.add(listener); return () => { callbacks.delete(listener); }; };
   const worker = createConfigRepository({ read, subscribe, async write(value) { raw = value; writes.push(value); for (const cb of callbacks) cb(); } });
-  const controls = createControlService({ config: worker, workerId: 'worker', runtime: () => 'ready' }); await controls.initialize();
+  const controls = createControlService({ ...protectionFixture(), config: worker, workerId: 'worker', runtime: () => 'ready' }); await controls.initialize();
   const local = createConfigRepository({ read, subscribe, async write() { throw Error('forbidden direct writer'); } });
   const controller = createOptionsController(local, async (baseRules, rules) => {
     const response = await controls.handle({ kind: 'save-rules', expected: controls.getStatus().version, baseRules, rules });

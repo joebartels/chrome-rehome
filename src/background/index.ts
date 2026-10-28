@@ -1,3 +1,6 @@
+import { createControlTargets } from '../browser/control-target';
+import { createChromeProtectionStorage } from '../browser/protection-storage';
+import { createProtectionRepository } from '../protections/repository';
 import { createControlService } from './controls';
 import { registerControlMessages } from '../browser/control-messages';
 import { createChromeJournalStorage } from '../browser/journal-storage';
@@ -20,7 +23,7 @@ const journal = createReplacementJournal({ storage: createChromeJournalStorage(c
 const recovery = createRecovery({ journal, port });
 const config = createConfigRepository(createChromeConfigStorage(chrome));
 let recoveryInitialized = false;
-const controls = createControlService({ config, workerId: crypto.randomUUID(),
+const controls = createControlService({ config, protections: createProtectionRepository(createChromeProtectionStorage(chrome)), targets: createControlTargets(chrome), workerId: crypto.randomUUID(),
   runtime: () => !recoveryInitialized ? 'checking' : recovery.isReady() ? 'ready' : 'blocked' });
 const coordinator = createCoordinator({
   config,

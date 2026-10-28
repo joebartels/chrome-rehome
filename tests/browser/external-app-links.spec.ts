@@ -1,3 +1,4 @@
+import { activateOwnedBrowser } from './owned-browser-focus';
 import { test, expect, chromium, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
@@ -68,6 +69,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`,
         '--ignore-certificate-errors', '--no-first-run', '--no-default-browser-check']
     });
+    if (name.startsWith('remote ')) await activateOwnedBrowser(context);
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
     const options = await context.newPage();
     await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`);

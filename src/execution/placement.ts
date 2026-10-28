@@ -73,7 +73,7 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
           && group.title === destination.title && snapshot.tabs.some(tab=>tab.groupId === group.id
             && tab.incognito === plan.winner.tab.incognito))) throw invalid;
         const winner = snapshot.tabs.find(tab => tab.id === expected.id);
-        if (!winner || !sameTab(winner, expected) || winner.pinned || 'pendingUrl' in winner
+        if (!winner || winner.audible || !sameTab(winner, expected) || winner.pinned || 'pendingUrl' in winner
           || !acceptIndex && winner.index !== expected.index) throw invalid;
 
         const relevant = snapshot.tabs.filter(tab => windows.has(tab.windowId));
@@ -92,7 +92,7 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
         // Passive duplicates are retained too; only the used anchor needs a live document.
         for (const participant of plan.duplicates) {
           const tab = snapshot.tabs.find(tab => tab.id === participant.tab.id);
-          if (!tab || !sameTab(tab, participant.tab) || tab.pinned || 'pendingUrl' in tab
+          if (!tab || tab.audible !== participant.tab.audible || !sameTab(tab, participant.tab) || tab.pinned || 'pendingUrl' in tab
             || !windows.has(tab.windowId) && tab.index !== participant.tab.index) throw invalid;
         }
         const groups = snapshot.groups.filter(group => windows.has(group.windowId));

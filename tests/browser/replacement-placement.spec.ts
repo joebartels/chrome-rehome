@@ -1,4 +1,5 @@
-import { test, expect, chromium, type BrowserContext, type Page } from '@playwright/test';
+import { activateOwnedBrowser } from './owned-browser-focus';
+import { test, expect, chromium, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { createServer } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -9,7 +10,7 @@ let server: ReturnType<typeof createServer>;
 test.beforeAll(async () => {
   server = createServer((_req, res) => {
     res.writeHead(200, { 'content-type': 'text/html' });
-    res.end('<title>Placement trial</title><a href="/target">Navigate</a>');
+    res.end('<title>Placement trial</title><a href="/target">Navigate</a><button id="tone">Start audio</button><button id="history">History target</button><script>document.querySelector("#tone").onclick=()=>{const c=new AudioContext();const o=c.createOscillator();o.connect(c.destination);o.start();window.audio=c;};document.querySelector("#history").onclick=()=>history.pushState({},"","/target");</script>');
   });
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done));
   origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
@@ -18,7 +19,7 @@ test.afterAll(async () => {
   await new Promise<void>((done, fail) => server.close(e => e ? fail(e) : done()));
 });
 
-async function fixture(run: (context: BrowserContext, options: Page) => Promise<void>, headed = false) {
+async function fixture(run: (context: BrowserContext, options: Page) => Promise<void>, headed = false, requireForeground = headed) {
   const profile = await mkdtemp(join(tmpdir(), 'chromerehome-placement-'));
   const extension = resolve('dist');
   const context = await chromium.launchPersistentContext(profile, {
@@ -27,6 +28,7 @@ async function fixture(run: (context: BrowserContext, options: Page) => Promise<
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
   });
   try {
+    if (requireForeground) await activateOwnedBrowser(context);
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
     const options = await context.newPage();
     await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`);
@@ -386,3 +388,85 @@ test('native production foreground transfer from lone source closes source and p
     const path=info.outputPath('native-lone-source.json');await writeFile(path,JSON.stringify({version:context.browser()!.version(),setup,after:await options.evaluate(async()=>({windows:await chrome.windows.getAll(),tabs:await chrome.tabs.query({})}))},null,2));await info.attach('native-lone-source',{path,contentType:'application/json'});
   },true);
 });
+
+async function saveProtectionEvidence(info: TestInfo, name: string, value: unknown) {
+  const path = info.outputPath(name + '.json');
+  await writeFile(path, JSON.stringify(value, null, 2));
+  await info.attach(name, { path, contentType: 'application/json' });
+}
+async function protection(options: Page, tabId: number, value: boolean) {
+  return options.evaluate(async ({ tabId, value }) => {
+    const tab = await chrome.tabs.update(tabId, { active: true });
+    if (!tab) throw Error('Target tab unavailable');
+    const status = await chrome.runtime.sendMessage({ kind: 'get-status', target: { tabId, windowId: tab.windowId, incognito: tab.incognito } });
+    if (!status.status.target) throw Error('Target receipt unavailable');
+    return chrome.runtime.sendMessage({ kind: 'set-tab-protected', expected: status.status.version, target: status.status.target.receipt, protected: value });
+  }, { tabId, value });
+}
+for (const protectedTab of ['winner', 'anchor', 'other'] as const) {
+  test(`production session protection on ${protectedTab} retains duplicates and native manual placement`, async ({}, info) => fixture(async (context, options) => {
+    const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
+    const other = await context.newPage(); await other.goto(origin + '/other'); const otherId = await id(options, other);
+    await other.goto(origin + '/target');
+    const winner = await context.newPage(); await winner.goto(origin + '/before'); const winnerId = await id(options, winner);
+    const groupId = await options.evaluate(async id => { const groupId = await chrome.tabs.group({ tabIds: [id] }); await chrome.tabGroups.update(groupId, { title: 'Manual' }); return groupId; }, anchorId);
+    const selectedId = protectedTab === 'winner' ? winnerId : protectedTab === 'anchor' ? anchorId : otherId;
+    expect((await protection(options, selectedId, true)).kind).toBe('ok');
+    await config(options, 'Competing');
+    await options.evaluate(id => chrome.tabs.update(id, { active: true }), winnerId);
+    await winner.getByRole('link').click();
+    await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.url).toBe(origin + '/target');
+    if (protectedTab !== 'winner') await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.groupId).toBe(groupId);
+    else expect((await tabs(options)).find(t => t.id === winnerId)?.groupId).toBe(-1);
+    const after = await tabs(options); expect(after.some(t => t.id === anchorId)).toBe(true); expect(after.some(t => t.id === otherId)).toBe(true);
+    expect(await options.evaluate(async () => (await chrome.runtime.sendMessage({ kind: 'get-status' })).status.target)).toBeUndefined();
+    const allowedIncognito = await options.evaluate(() => new Promise<boolean>(resolve => chrome.extension.isAllowedIncognitoAccess(resolve)));
+    const evidence = { version: context.browser()!.version(), protectedTab, selectedId, winnerId, anchorId, otherId, groupId, allowedIncognito, after };
+    await saveProtectionEvidence(info, 'session-protection', evidence);
+    await config(options, undefined, false); await winner.goBack(); expect(winner.url()).toBe(origin + '/before');
+    expect((await protection(options, selectedId, false)).kind).toBe('ok');
+  }, true, false));
+}
+test('production session protection survives navigation reload and worker restart and ends on close', async ({}, info) => fixture(async (context, options) => {
+  const winner = await context.newPage(); await winner.goto(origin + '/before'); const winnerId = await id(options, winner);
+  expect((await protection(options, winnerId, true)).kind).toBe('ok'); await config(options, 'Work');
+  await winner.getByRole('link').click(); await winner.reload();
+  const cdp = await context.newCDPSession(options); const versions = new Map<string, { versionId: string; scriptURL: string; runningStatus: string }>();
+  try {
+    cdp.on('ServiceWorker.workerVersionUpdated', ({ versions: changed }) => { for (const v of changed) versions.set(v.versionId, v); });
+    await cdp.send('ServiceWorker.enable'); await expect.poll(() => [...versions.values()].find(v => v.runningStatus === 'running' && v.scriptURL.startsWith('chrome-extension://'))).toBeTruthy();
+    const version = [...versions.values()].find(v => v.runningStatus === 'running' && v.scriptURL.startsWith('chrome-extension://'))!;
+    await cdp.send('ServiceWorker.stopWorker', { versionId: version.versionId }); await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('stopped');
+    await winner.goto(origin + '/after-restart');
+    await expect.poll(() => versions.get(version.versionId)?.runningStatus).toBe('running');
+    await expect.poll(async () => options.evaluate(async tabId => { const tab = await chrome.tabs.get(tabId); return (await chrome.runtime.sendMessage({ kind: 'get-status', target: { tabId, windowId: tab.windowId, incognito: tab.incognito } })).status.target?.protected; }, winnerId)).toBe(true);
+    expect((await tabs(options)).find(t => t.id === winnerId)?.groupId).toBe(-1);
+    const before = await options.evaluate(() => chrome.storage.session.get('chromeReHomeProtections'));
+    await winner.close();
+    await expect.poll(async () => options.evaluate(async () => ((await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections as { tabs: unknown[] }).tabs)).toEqual([]);
+    await saveProtectionEvidence(info, 'session-lifetime', { version: context.browser()!.version(), winnerId, before, after: await options.evaluate(() => chrome.storage.session.get('chromeReHomeProtections')) });
+  } finally { await cdp.detach(); }
+}, true, false));
+test('production audible older anchor retains every duplicate while placing the silent winner', async ({}, info) => fixture(async (context, options) => {
+  const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
+  const other = await context.newPage(); await other.goto(origin + '/other'); const otherId = await id(options, other); await other.goto(origin + '/target');
+  const winner = await context.newPage(); await winner.goto(origin + '/before'); const winnerId = await id(options, winner);
+  const groupId = await options.evaluate(async id => { const groupId = await chrome.tabs.group({ tabIds: [id] }); await chrome.tabGroups.update(groupId, { title: 'Audible anchor' }); return groupId; }, anchorId);
+  await anchor.getByRole('button', { name: 'Start audio' }).click();
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === anchorId)?.audible).toBe(true);
+  await config(options); await options.evaluate(id => chrome.tabs.update(id, { active: true }), winnerId); await winner.getByRole('link').click();
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.groupId).toBe(groupId);
+  const after = await tabs(options); expect(after.some(t => t.id === anchorId)).toBe(true); expect(after.some(t => t.id === otherId)).toBe(true);
+  await saveProtectionEvidence(info, 'audible-anchor', { version: context.browser()!.version(), winnerId, anchorId, otherId, groupId, after });
+}, true, false));
+test('production audible incoming same-document navigation skips automatic placement', async ({}, info) => fixture(async (context, options) => {
+  const winner = await context.newPage(); await winner.goto(origin + '/seed'); await winner.getByRole('link').click();
+  await winner.evaluate(() => history.pushState({}, '', '/before')); const winnerId = await id(options, winner);
+  const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
+  await options.evaluate(id => chrome.tabs.update(id, { active: true }), winnerId);
+  await winner.getByRole('button', { name: 'Start audio' }).click(); await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.audible).toBe(true);
+  await config(options, 'Work'); await winner.getByRole('button', { name: 'History target' }).click();
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === winnerId)?.url).toBe(origin + '/target');
+  const after = await tabs(options); expect(after.find(t => t.id === winnerId)?.groupId).toBe(-1); expect(after.some(t => t.id === anchorId)).toBe(true);
+  await saveProtectionEvidence(info, 'audible-winner', { version: context.browser()!.version(), winnerId, anchorId, after });
+}, true, false));

@@ -8,7 +8,7 @@ function navigation(overrides: Partial<CandidateNavigation> = {}): CandidateNavi
   return Object.freeze({ epoch, tabId: 7, generation: 1, observedSequence: 1, documentId: 'doc', url: 'https://example.com/a', ...overrides });
 }
 function tab(overrides: Partial<Record<keyof CandidateTab, unknown>> = {}): CandidateTab {
-  return Object.freeze({ id: 7, windowId: 1, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/a', ...overrides }) as CandidateTab;
+  return Object.freeze({ id: 7, windowId: 1, index: 0, groupId: -1, pinned: false, audible: false, incognito: false, url: 'https://example.com/a', ...overrides }) as CandidateTab;
 }
 function view(navigations: readonly CandidateNavigation[] = [navigation()], overrides: Partial<NavigationView> = {}): NavigationView {
   return Object.freeze({ epoch, revision: 1, navigations: Object.freeze([...navigations]), blockedTabIds: Object.freeze([]), ...overrides });

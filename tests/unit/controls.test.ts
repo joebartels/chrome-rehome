@@ -1,3 +1,4 @@
+import { protectionFixture } from '../fixtures/protections';
 import { expect, test } from 'vitest';
 import { createControlService } from '../../src/background/controls';
 import { createConfigRepository } from '../../src/config/repository';
@@ -12,7 +13,7 @@ function harness() {
   let write = async (value: Config) => { raw = value; };
   const writes: Config[] = [];
   const config = createConfigRepository({ read: () => read(), write: value => { writes.push(value); return write(value); }, subscribe: listener => { notify = listener; return () => {}; } });
-  const service = createControlService({ config, workerId: 'worker', runtime: () => runtime });
+  const service = createControlService({ ...protectionFixture(), config, workerId: 'worker', runtime: () => runtime });
   return { service, writes, config, get raw() { return raw; }, setRaw(value: unknown) { raw = value; },
     setRead(value: typeof read) { read = value; }, setWrite(value: typeof write) { write = value; },
     setRuntime(value: typeof runtime) { runtime = value; }, external(value: unknown) { raw = value; notify(); } };

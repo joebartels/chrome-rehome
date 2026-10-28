@@ -21,7 +21,7 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
     const guard = {
       isCurrent: () => context.isCurrent() && tracker.isCurrent(event) && tracker.isViewCurrent(view)
     };
-    if (!guard.isCurrent() || !context.config.enabled) return;
+    if (!guard.isCurrent() || !context.config.enabled || !Array.isArray(context.protectedTabs)) return;
     const identity = compileDuplicateRules(context.config.duplicateRules);
     const grouping = compileGroupingRules(context.config.groupingRules);
     if (identity.kind !== 'ready' || grouping.kind !== 'ready') return;
@@ -29,7 +29,7 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
     try {
       const snapshot = await port.read();
       if (!guard.isCurrent()) return;
-      const selection = selectCandidates(event, snapshot.tabs, view, identity, { allowNoDuplicates: true });
+      const selection = selectCandidates(event, snapshot.tabs, view, identity, { allowNoDuplicates: true, protectedTabs: context.protectedTabs });
       if (selection.kind === 'skip') return;
       const initialTab = snapshot.tabs.find(tab=>tab.id === selection.winner.id);
       const uniqueInitialSelection = snapshot.tabs.filter(tab=>tab.windowId === selection.winner.windowId && tab.active === true).length === 1;
@@ -50,6 +50,7 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
       }
       const plan = planReplacement({
         selection,
+        protectedTabs: context.protectedTabs,
         presentation,
         view,
         snapshot,

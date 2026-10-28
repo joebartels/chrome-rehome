@@ -4,7 +4,7 @@ import type { NavigationInput, NavigationKind } from './navigation';
 type EventsApi = {
   webNavigation: Pick<typeof chrome.webNavigation,
     'onCommitted' | 'onHistoryStateUpdated' | 'onReferenceFragmentUpdated' | 'onBeforeNavigate' | 'onTabReplaced'>;
-  tabs: Pick<typeof chrome.tabs, 'onRemoved' | 'onReplaced'>;
+  tabs: Pick<typeof chrome.tabs, 'onRemoved' | 'onReplaced' | 'onUpdated'>;
   runtime: Pick<typeof chrome.runtime, 'onStartup' | 'onInstalled'>;
 };
 
@@ -40,6 +40,9 @@ export function registerEvents(
   api.webNavigation.onReferenceFragmentUpdated.addListener(navigation('fragment'));
   api.webNavigation.onBeforeNavigate.addListener((details) => {
     if (details.frameId === 0) coordinator.invalidate(details.tabId);
+  });
+  api.tabs.onUpdated.addListener((_tabId, changes) => {
+    if (Object.hasOwn(changes, 'audible')) coordinator.invalidateControls();
   });
   api.tabs.onRemoved.addListener((tabId) => { coordinator.forget(tabId); });
   api.tabs.onReplaced.addListener((addedTabId, removedTabId) => {

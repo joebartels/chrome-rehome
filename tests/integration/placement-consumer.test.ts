@@ -1,3 +1,5 @@
+import { createControlService } from '../../src/background/controls';
+import { protectionFixture } from '../fixtures/protections';
 import { expect, it } from 'vitest';
 import { createPlacementConsumer } from '../../src/background/placement';
 import { createCoordinator } from '../../src/background/coordinator';
@@ -19,11 +21,11 @@ const input = (tabId = 1, timeStamp = 1): NavigationInput => ({
   documentLifecycle: 'active', transitionType: 'link', transitionQualifiers: [], kind: 'committed'
 });
 
-function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize(): Promise<void>; isReady(): boolean }, initial?: PlacementSnapshot) {
+function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize(): Promise<void>; isReady(): boolean }, initial?: PlacementSnapshot, protectedIds: number[] = []) {
   const tracker = createNavigationTracker();
   let tabs: PlacementSnapshot['tabs'][number][] = [...(initial?.tabs ?? [
-    { id: 1, windowId: 10, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' },
-    { id: 2, windowId: 20, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' }
+    { id: 1, windowId: 10, index: 0, groupId: -1, pinned: false, audible: false, incognito: false, url: 'https://example.com/' },
+    { id: 2, windowId: 20, index: 0, groupId: -1, pinned: false, audible: false, incognito: false, url: 'https://example.com/' }
   ])];
   let groups: PlacementSnapshot['groups'][number][] = [...(initial?.groups ?? [])];
   const frames: number[] = [];
@@ -42,7 +44,7 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
       removed.push(id);
       tabs = tabs.filter(tab => tab.id !== id);
       normalize();
-      tracker.forget(id);
+      coordinator.forget(id);
     },
     read: async () => ({ tabs, groups }),
     readDocument: async tabId => {
@@ -88,11 +90,14 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
     storage: { read: async () => undefined, write: async () => {}, clear: async () => {} },
     createOperationId: () => 'test'
   });
-  const coordinator = createCoordinator({ tracker, config, queue, diagnostics,
+  const protection = protectionFixture({ version: 1, tabs: protectedIds.map(tabId => ({ tabId, incognito: false })) });
+  protection.setLive(async () => tabs.map(tab => ({ tabId: tab.id, incognito: tab.incognito })));
+  const controls = createControlService({ config, ...protection, workerId: 'worker', runtime: () => 'ready' });
+  const coordinator = createCoordinator({ tracker, config, controls, queue, diagnostics,
     ...(recovery ? { recovery } : {}),
     consume: createPlacementConsumer({ tracker, port, journal, diagnostics })
   });
-  return { coordinator, tracker, config, queue, port, frames, mutations, removed, diagnostics,
+  return { controls, protection, coordinator, tracker, config, queue, port, frames, mutations, removed, diagnostics,
     reload: (next: () => Promise<unknown>) => { read = next; changed(); }
   };
 }
@@ -167,9 +172,9 @@ it.each(['link', 'start_page'])('%s cannot mutate when disabled, recovery blocke
 
 it('production consumer routes a grouping-only incoming tab into the remote existing group',async()=>{
   const f=fixture(enabled,false,undefined,{tabs:[
-    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/'},
-    {id:3,windowId:20,index:0,groupId:8,pinned:false,incognito:false,url:'https://first.test/'},
-    {id:4,windowId:20,index:1,groupId:8,pinned:false,incognito:false,url:'https://second.test/'}
+    {id:1,windowId:10,index:0,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://example.com/'},
+    {id:3,windowId:20,index:0,groupId:8,pinned: false, audible: false, incognito:false,url:'https://first.test/'},
+    {id:4,windowId:20,index:1,groupId:8,pinned: false, audible: false, incognito:false,url:'https://second.test/'}
   ],groups:[{id:8,windowId:20,title:'Work'}]});
   await f.coordinator.handle(input());
   const result=await f.port.read();
@@ -181,10 +186,10 @@ it('production consumer routes a grouping-only incoming tab into the remote exis
 
 it.each([true,false,undefined])('consumer captures raw first active=%s before candidate copying and native transfer',async active=>{
   const f=fixture(enabled,true,undefined,{tabs:[
-    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',...(active===undefined?{}:{active})},
-    {id:4,windowId:10,index:1,groupId:-1,pinned:false,incognito:false,url:'https://source.test/',active:!active},
-    {id:2,windowId:20,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:false},
-    {id:3,windowId:20,index:1,groupId:-1,pinned:false,incognito:false,url:'https://spare.test/',active:true}
+    {id:1,windowId:10,index:0,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://example.com/',...(active===undefined?{}:{active})},
+    {id:4,windowId:10,index:1,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://source.test/',active:!active},
+    {id:2,windowId:20,index:0,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://example.com/',active:false},
+    {id:3,windowId:20,index:1,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://spare.test/',active:true}
   ],groups:[]});
   let attention={focusedWindowId:10,activeTabs:[{windowId:10,tabId:1},{windowId:20,tabId:3}]};
   const presentation:string[]=[];f.port.readPresentation=async()=>structuredClone(attention);
@@ -202,10 +207,28 @@ it('unknown attention allows valid duplicate placement without activation',async
 
 it('contradictory first snapshot selection preserves intent while allowing core placement',async()=>{
   const f=fixture(enabled,true,undefined,{tabs:[
-    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:true},
-    {id:4,windowId:10,index:1,groupId:-1,pinned:false,incognito:false,url:'https://source.test/',active:true},
-    {id:2,windowId:20,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:true}
+    {id:1,windowId:10,index:0,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://example.com/',active:true},
+    {id:4,windowId:10,index:1,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://source.test/',active:true},
+    {id:2,windowId:20,index:0,groupId:-1,pinned: false, audible: false, incognito:false,url:'https://example.com/',active:true}
   ],groups:[]});
   let reads=0;f.port.readPresentation=async()=>{reads++;return {focusedWindowId:10,activeTabs:[{windowId:10,tabId:1},{windowId:20,tabId:2}]};};
   await f.coordinator.handle(input());expect(f.removed).toEqual([2]);expect(reads).toBe(1);
+});
+
+it.each([1, 2])('production captures protected identity %i for initial selection and planning', async id => {
+  const f = fixture(enabled, true, undefined, undefined, [id]);
+  await f.coordinator.handle(input());
+  expect(f.removed).toEqual([]); expect(f.mutations).toEqual(id === 1 ? [] : [1]);
+});
+it('production preserves every issued removal credit through multiple unprotected closes', async () => {
+  const tabs = [1, 2, 3, 4].map((id, index) => ({ id, index, windowId: 10, groupId: -1, pinned: false, audible: false, incognito: false, url: 'https://example.com/' }));
+  const f = fixture(enabled, true, undefined, { tabs, groups: [] });
+  await f.coordinator.handle(input()); expect(f.removed).toEqual([2, 3, 4]);
+});
+it('protection storage invalidation during a deferred consumer snapshot blocks all mutation', async () => {
+  const f = fixture(enabled, true); const entered = deferred<void>(); const release = deferred<void>(); const read = f.port.read;
+  f.port.read = async () => { entered.resolve(); await release.promise; return read(); };
+  const pending = f.coordinator.handle(input()); await entered.promise;
+  f.protection.external({ version: 1, tabs: [{ tabId: 1, incognito: false }] });
+  release.resolve(); await pending; expect(f.mutations).toEqual([]); expect(f.removed).toEqual([]);
 });

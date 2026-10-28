@@ -1,11 +1,14 @@
+import type { ProtectedIdentity } from '../planning/protections';
 import { parseConfig, type Config } from '../config/schema';
 
 export type ControlVersion = Readonly<{ workerId: string; revision: number }>;
+export type TargetHint = Readonly<{ tabId: number; windowId: number; incognito: boolean }>;
+export type TargetSnapshot = Readonly<{ receipt: TabReceipt; audible: boolean; pinned: boolean }>;
 export type TabReceipt = Readonly<{ tabId: number; windowId: number; incognito: boolean; documentId: string }>;
-export type ProtectedIdentity = Readonly<{ tabId: number; incognito: boolean }>;
+export type { ProtectedIdentity };
 export type RuleLists = Readonly<Pick<Config, 'groupingRules' | 'duplicateRules'>>;
 export type ControlCommand =
-  | Readonly<{ kind: 'get-status' }>
+  | Readonly<{ kind: 'get-status'; target?: TargetHint }>
   | Readonly<{ kind: 'set-enabled'; expected: ControlVersion; enabled: boolean }>
   | Readonly<{ kind: 'set-tab-protected'; expected: ControlVersion; target: TabReceipt; protected: boolean }>
   | Readonly<{ kind: 'save-rules'; expected: ControlVersion; baseRules: RuleLists; rules: RuleLists }>;
@@ -13,7 +16,7 @@ export type ControlStatus = Readonly<{
   version: ControlVersion;
   phase: 'checking' | 'active' | 'paused' | 'unavailable' | 'blocked';
   savedEnabled: boolean | null;
-  target?: Readonly<{ receipt: TabReceipt; protected: boolean }>;
+  target?: TargetSnapshot & Readonly<{ protected: boolean }>;
 }>;
 export type ControlReply = Readonly<{ kind: 'ok' | 'invalid' | 'conflict' | 'unavailable'; status: ControlStatus }>;
 export type ControlCapture = Readonly<{
@@ -32,6 +35,10 @@ function integer(value: unknown, maximum = Number.MAX_SAFE_INTEGER): value is nu
 }
 function version(value: unknown): value is ControlVersion {
   return exact(value, ['workerId', 'revision']) && text(value.workerId) && integer(value.revision);
+}
+export function isTargetHint(value: unknown): value is TargetHint {
+  return exact(value, ['tabId', 'windowId', 'incognito']) && integer(value.tabId, 2147483647) &&
+    integer(value.windowId, 2147483647) && typeof value.incognito === 'boolean';
 }
 export function isTabReceipt(value: unknown): value is TabReceipt {
   return exact(value, ['tabId', 'windowId', 'incognito', 'documentId']) && integer(value.tabId, 2147483647) &&
@@ -60,7 +67,11 @@ function parseRules(value: unknown): RuleLists | undefined {
 export function parseControlCommand(raw: unknown): ControlCommand | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return;
   const value = raw as Record<string, unknown>;
-  if (value.kind === 'get-status') return exact(value, ['kind']) ? Object.freeze({ kind: 'get-status' }) : undefined;
+  if (value.kind === 'get-status') {
+    if (Object.hasOwn(value, 'kind') && Reflect.ownKeys(value).length === 1) return Object.freeze({ kind: 'get-status' });
+    return exact(value, ['kind', 'target']) && isTargetHint(value.target)
+      ? Object.freeze({ kind: 'get-status', target: Object.freeze({ ...value.target }) }) : undefined;
+  }
   if (!('expected' in value) || !version(value.expected)) return;
   const expected = Object.freeze({ ...value.expected });
   switch (value.kind) {
@@ -83,6 +94,7 @@ export function isControlReply(value: unknown): value is ControlReply {
     ? ['version', 'phase', 'savedEnabled', 'target'] : ['version', 'phase', 'savedEnabled'])) return false;
   return version(status.version) && ['checking', 'active', 'paused', 'unavailable', 'blocked'].includes(status.phase as string) &&
     (status.savedEnabled === null || typeof status.savedEnabled === 'boolean') &&
-    (!Object.hasOwn(status, 'target') || exact(status.target, ['receipt', 'protected']) &&
-      isTabReceipt(status.target.receipt) && typeof status.target.protected === 'boolean');
+    (!Object.hasOwn(status, 'target') || exact(status.target, ['receipt', 'protected', 'audible', 'pinned']) &&
+      isTabReceipt(status.target.receipt) && typeof status.target.protected === 'boolean' &&
+      typeof status.target.audible === 'boolean' && typeof status.target.pinned === 'boolean');
 }
