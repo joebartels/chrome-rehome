@@ -1,6 +1,7 @@
 import type { createConfigRepository } from '../config/repository';
 import type { Config, ConfigState } from '../config/schema';
-import { createDraft, sameConfig, validateDraft, type DraftValidation, type EditorDraft } from './model';
+import { sameRules, ruleLists, type RuleLists } from '../controls/protocol';
+import { createDraft, validateDraft, type DraftValidation, type EditorDraft } from './model';
 
 type ReadonlyDraft = Readonly<Omit<EditorDraft, 'groupingRules' | 'duplicateRules'>> & {
   readonly groupingRules: readonly Readonly<EditorDraft['groupingRules'][number]>[];
@@ -16,7 +17,9 @@ export type EditorState = Readonly<{
   message: string;
 }>;
 
-export function createOptionsController(repository: ReturnType<typeof createConfigRepository>) {
+export type RulesWriter = (baseRules: RuleLists, rules: RuleLists) => Promise<'ok' | 'conflict' | 'unavailable'>;
+
+export function createOptionsController(repository: ReturnType<typeof createConfigRepository>, writeRules?: RulesWriter) {
   let base: Config | undefined;
   let draft: EditorDraft | undefined;
   let saved: ConfigState | undefined;
@@ -44,7 +47,7 @@ export function createOptionsController(repository: ReturnType<typeof createConf
       : validation ? Object.freeze(validation) : undefined;
     return Object.freeze({ ...(snapshot ? { draft: snapshot } : {}), ...(saved ? { saved: Object.freeze({ ...saved }) } : {}),
       ...(readonlyValidation ? { validation: readonlyValidation } : {}),
-      dirty: !!draft && (unverified || validation?.kind !== 'ready' || !base || !sameConfig(base, validation.config)),
+      dirty: !!draft && (unverified || validation?.kind !== 'ready' || !base || !sameRules(base, validation.config)),
       busy, conflict, message });
   }
   function emit(): void {
@@ -63,18 +66,22 @@ export function createOptionsController(repository: ReturnType<typeof createConf
     const wasDirty = getState().dirty;
     const hadConflict = conflict;
     saved = state;
+    if (state.kind === 'ready' && base && draft) {
+      base = Object.freeze({ ...base, enabled: state.config.enabled });
+      draft.enabled = state.config.enabled;
+    }
     if (phase === 'preflight' || phase === 'write' || phase === 'verify') {
       // A write can echo both its previous value and its pending candidate.
       // Neither publication is an instruction to discard the private draft.
       if (state.kind === 'ready') {
-        const ownValue = !!operationBase && sameConfig(state.config, operationBase) ||
-          phase !== 'preflight' && !!candidate && sameConfig(state.config, candidate);
+        const ownValue = !!operationBase && sameRules(state.config, operationBase) ||
+          phase !== 'preflight' && !!candidate && sameRules(state.config, candidate);
         if (!ownValue) operationConflict = true;
       } else if (state.reason !== 'storage') operationConflict = true;
     } else if (phase !== 'reload') {
       if (state.kind === 'ready') {
         if (!wasDirty) adopt(state.config);
-        else conflict = !base || !sameConfig(base, state.config);
+        else conflict = !base || !sameRules(base, state.config);
       } else if (draft) conflict = true;
       if (conflict) message = 'Saved settings changed. Reload saved settings before saving your draft.';
       else if (hadConflict) message = unverified
@@ -153,11 +160,19 @@ export function createOptionsController(repository: ReturnType<typeof createConf
         } else changed();
         return;
       }
-      if (operationConflict || !sameConfig(saved.config, previousBase)) { changed(); return; }
+      if (operationConflict || !sameRules(saved.config, previousBase)) { changed(); return; }
       phase = 'write';
       message = 'Saving settings…';
       emit();
-      const written = await repository.save(candidate);
+      candidate = { ...candidate, enabled: saved.config.enabled };
+      let written: ConfigState;
+      if (writeRules) {
+        let result: Awaited<ReturnType<RulesWriter>>;
+        try { result = await writeRules(ruleLists(previousBase), ruleLists(candidate)); } catch { result = 'unavailable'; }
+        if (result === 'conflict') operationConflict = true;
+        written = result === 'ok' ? { kind: 'ready', config: candidate }
+          : { kind: 'unavailable', reason: 'storage', message: 'Control write unavailable.' };
+      } else written = await repository.save(candidate);
       if (!active()) return;
       if (written.kind !== 'ready') {
         conflict = operationConflict;
@@ -181,8 +196,8 @@ export function createOptionsController(repository: ReturnType<typeof createConf
       saved = verification.state;
       if (saved.kind === 'unavailable' && saved.reason === 'storage' && !operationConflict) {
         message = 'Settings were written, but current settings could not be verified. Try saving again.';
-      } else if (operationConflict || saved.kind !== 'ready' || !sameConfig(saved.config, candidate)) changed();
-      else { adopt(candidate); message = 'Settings saved.'; }
+      } else if (operationConflict || saved.kind !== 'ready' || !sameRules(saved.config, candidate)) changed();
+      else { adopt(saved.config); message = 'Settings saved.'; }
     } finally {
       if (active()) { busy = false; phase = undefined; candidate = undefined; operationBase = undefined; emit(); }
     }

@@ -1,3 +1,4 @@
+import type { createControlService } from './controls';
 import type { createConfigRepository } from '../config/repository';
 import type { Config, ConfigState } from '../config/schema';
 import type { createDiagnostics } from '../diagnostics/diagnostics';
@@ -8,6 +9,7 @@ export type ConsumeContext = Readonly<{ config: Config; revision: number; isCurr
 
 type Dependencies = {
   config: ReturnType<typeof createConfigRepository>;
+  controls?: ReturnType<typeof createControlService>;
   tracker: ReturnType<typeof createNavigationTracker>;
   queue: ReturnType<typeof createOperationQueue>;
   diagnostics: ReturnType<typeof createDiagnostics>;
@@ -15,7 +17,7 @@ type Dependencies = {
   consume: (event: Navigation, context: ConsumeContext) => Promise<void>;
 };
 
-export function createCoordinator({ config, tracker, queue, diagnostics, consume, recovery }: Dependencies) {
+export function createCoordinator({ config, tracker, queue, diagnostics, consume, recovery, controls }: Dependencies) {
   let state: ConfigState | undefined;
   let revision = 0;
   let disposed = false;
@@ -32,9 +34,9 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
 
   function initialize(): Promise<void> {
     if (disposed) return Promise.resolve();
-    initialization ??= Promise.all([config.load(), queue.run(async () => { await recovery?.initialize(); })]).then(([loaded]) => {
+    initialization ??= Promise.all([controls ? controls.initialize() : config.load(), queue.run(async () => { await recovery?.initialize(); })]).then(([loaded]) => {
       if (disposed) return;
-      if (state === undefined) update(loaded);
+      if (state === undefined && loaded) update(loaded);
       diagnostics.record({ code: 'worker-started' });
     });
     return initialization;
@@ -48,30 +50,35 @@ export function createCoordinator({ config, tracker, queue, diagnostics, consume
       const event = tracker.observe(input);
       if (!event) return;
       const observedRevision = revision;
+      const observedGeneration = controls?.generation;
       diagnostics.record({ code: 'navigation-observed', sequence: event.observedSequence, tabId: event.tabId });
       await initialize();
       await queue.run(async () => {
         if (disposed || (recovery && !recovery.isReady()) || observedRevision !== revision || !tracker.isCurrent(event)
           || state?.kind !== 'ready' || !state.config.enabled) return;
+        if (controls && observedGeneration !== controls.generation) return;
+        const controlCapture = controls?.capture();
+        if (controls && !controlCapture) return;
         const captured = config.getCurrent();
         if (captured?.state !== state) return;
         const capturedRevision = revision;
         const context: ConsumeContext = Object.freeze({config:state.config,revision:captured.revision,isCurrent() {
           const current = config.getCurrent();
-          return !disposed && (!recovery || recovery.isReady()) && revision === capturedRevision && current?.revision === captured.revision
+          return !disposed && (!controls || !!controlCapture && controls.isCurrent(controlCapture)) && (!recovery || recovery.isReady()) && revision === capturedRevision && current?.revision === captured.revision
             && current.state === state && state?.kind === 'ready' && state.config.enabled && tracker.isCurrent(event);
         }});
         await consume(event, context);
       });
     },
     invalidate(tabId: number): void { tracker.invalidate(tabId); },
-    replace(addedTabId: number, removedTabId: number): void { tracker.replace(addedTabId, removedTabId); },
-    forget(tabId: number): void { tracker.forget(tabId); },
+    replace(addedTabId: number, removedTabId: number): void { controls?.forget(removedTabId); tracker.replace(addedTabId, removedTabId); },
+    forget(tabId: number): void { controls?.forget(tabId); tracker.forget(tabId); },
     dispose(): void {
       if (disposed) return;
       disposed = true;
       ++revision;
       unsubscribe();
+      controls?.dispose();
       config.dispose();
     },
   };

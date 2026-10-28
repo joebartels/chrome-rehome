@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { createControlService } from '../../src/background/controls';
 import { createCoordinator } from '../../src/background/coordinator';
 import { createConfigRepository } from '../../src/config/repository';
 import { selectCandidates } from '../../src/planning/candidates';
@@ -200,4 +201,21 @@ it.each(['link', 'start_page'])('cold %s waits for recovery readiness and stays 
     await pending;
     expect(consumed).toEqual(ready ? [7] : []);
   }
+});
+
+
+it('control pause is independent of native settlement and queued navigation cannot revive after resume', async () => {
+  let raw = enabled; const config = createConfigRepository({ read: async () => raw, write: async value => { raw = value as typeof enabled; }, subscribe: () => () => {} });
+  const controls = createControlService({ config, workerId: 'worker', runtime: () => 'ready' });
+  const gate = deferred<void>(); const started = deferred<void>(); let current = () => false; const consumed: number[] = [];
+  const coordinator = createCoordinator({ config, controls, tracker: createNavigationTracker(), queue: createOperationQueue(), diagnostics: createDiagnostics(),
+    consume: async (event, context) => { consumed.push(event.tabId); current = context.isCurrent; started.resolve(); await gate.promise; } });
+  await coordinator.initialize(); const first = coordinator.handle(createInput()); await started.promise;
+  const queued = coordinator.handle(createInput(8));
+  const pausing = controls.handle({ kind: 'set-enabled', expected: controls.getStatus().version, enabled: false });
+  expect(current()).toBe(false); await pausing;
+  expect(controls.getStatus().phase).toBe('paused');
+  await controls.handle({ kind: 'set-enabled', expected: controls.getStatus().version, enabled: true });
+  expect(current()).toBe(false); gate.resolve(); await Promise.all([first, queued]);
+  expect(consumed).toEqual([7]); await coordinator.handle(createInput(9)); expect(consumed).toEqual([7, 9]);
 });

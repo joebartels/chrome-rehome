@@ -1,3 +1,5 @@
+import { createControlService } from './controls';
+import { registerControlMessages } from '../browser/control-messages';
 import { createChromeJournalStorage } from '../browser/journal-storage';
 import { createReplacementJournal } from '../execution/journal';
 import { createRecovery } from './recovery';
@@ -16,15 +18,21 @@ const tracker = createNavigationTracker();
 const port = createPlacementAdapter(chrome);
 const journal = createReplacementJournal({ storage: createChromeJournalStorage(chrome), createOperationId: () => crypto.randomUUID() });
 const recovery = createRecovery({ journal, port });
+const config = createConfigRepository(createChromeConfigStorage(chrome));
+let recoveryInitialized = false;
+const controls = createControlService({ config, workerId: crypto.randomUUID(),
+  runtime: () => !recoveryInitialized ? 'checking' : recovery.isReady() ? 'ready' : 'blocked' });
 const coordinator = createCoordinator({
-  config: createConfigRepository(createChromeConfigStorage(chrome)),
+  config,
+  controls,
   tracker,
-  recovery,
+  recovery: { async initialize() { await recovery.initialize(); recoveryInitialized = true; }, isReady: recovery.isReady },
   queue: createOperationQueue(),
   diagnostics,
   consume: createPlacementConsumer({ tracker, port, journal, diagnostics }),
 });
 const reportFailure = () => { diagnostics.record({ code: 'operation-failed' }); };
 
+registerControlMessages(chrome.runtime, controls);
 registerEvents(chrome, coordinator, reportFailure);
 void coordinator.initialize().catch(() => { reportFailure(); });

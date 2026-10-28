@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createConfigRepository, type ConfigStorage } from '../../src/config/repository';
 import type { Config } from '../../src/config/schema';
+import { createControlService } from '../../src/background/controls';
 import { createOptionsController } from '../../src/options/controller';
 
 const empty = { schemaVersion: 4, enabled: true, groupingRules: [], duplicateRules: [] } as const;
@@ -293,4 +294,32 @@ describe('options controller', () => {
     pending.resolve(empty); await saving;
     expect(h.controller.getState()).toEqual(before); expect(notifications).toBe(0); expect(h.detached).toBe(1);
   });
+});
+
+
+it('enabled-only publication preserves private rules without a conflict and saves current activation', async () => {
+  const h = harness(); await h.controller.ready; edit(h);
+  h.external({ ...empty, enabled: false }); await flush();
+  expect(h.controller.getState()).toMatchObject({ dirty: true, conflict: false, draft: { enabled: false, groupingRules: [{ group: 'Work' }] } });
+  await h.controller.save(); expect(h.writes[0]?.enabled).toBe(false);
+  expect(h.controller.getState().message).toBe('Settings saved.');
+});
+
+
+it('production rules callback writes via worker and preserves a pause racing the private draft', async () => {
+  let raw: Config = empty; const writes: Config[] = []; const callbacks = new Set<() => void>();
+  const read = async () => raw;
+  const subscribe = (listener: () => void) => { callbacks.add(listener); return () => { callbacks.delete(listener); }; };
+  const worker = createConfigRepository({ read, subscribe, async write(value) { raw = value; writes.push(value); for (const cb of callbacks) cb(); } });
+  const controls = createControlService({ config: worker, workerId: 'worker', runtime: () => 'ready' }); await controls.initialize();
+  const local = createConfigRepository({ read, subscribe, async write() { throw Error('forbidden direct writer'); } });
+  const controller = createOptionsController(local, async (baseRules, rules) => {
+    const response = await controls.handle({ kind: 'save-rules', expected: controls.getStatus().version, baseRules, rules });
+    return response.kind === 'invalid' ? 'unavailable' : response.kind;
+  });
+  await controller.ready; controller.edit(draft => { draft.groupingRules.push({ enabled: true, pattern: 'https://example.com/*', group: 'Work' }); });
+  await controls.handle({ kind: 'set-enabled', expected: controls.getStatus().version, enabled: false });
+  await controller.save();
+  expect(writes).toHaveLength(2); expect(raw.enabled).toBe(false); expect(raw.groupingRules[0]?.group).toBe('Work');
+  expect(controller.getState()).toMatchObject({ dirty: false, conflict: false, message: 'Settings saved.' });
 });

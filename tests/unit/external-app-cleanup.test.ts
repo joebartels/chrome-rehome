@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cleanupExternalAppTrial } from '../browser/external-app-cleanup';
 
-for (const failure of ['context', 'http connections', 'http close', 'launcher']) {
+for (const failure of ['helper', 'context', 'http connections', 'http close', 'launcher']) {
   test(`native trial cleanup continues after ${failure} fails and preserves the test failure`, async ({ onTestFinished }) => {
     const profileRoot = await mkdtemp(join(tmpdir(), 'chromerehome-cleanup-test-'));
     onTestFinished(() => rm(profileRoot, { recursive: true, force: true }));
@@ -32,6 +32,7 @@ for (const failure of ['context', 'http connections', 'http close', 'launcher'])
         throw originalError;
       } finally {
         await cleanupExternalAppTrial({
+          helper: { dispose: () => step('helper') },
           context: { close: () => step('context') },
           servers: [server('http'), undefined, server('https')],
           launcher: { dispose: () => step('launcher') },
@@ -40,7 +41,7 @@ for (const failure of ['context', 'http connections', 'http close', 'launcher'])
       }
     };
     await expect(trial()).rejects.toBe(originalError);
-    expect(attempted).toEqual(['context', 'http connections', 'http close', 'https connections', 'https close', 'launcher']);
+    expect(attempted).toEqual(['helper', 'context', 'http connections', 'http close', 'https connections', 'https close', 'launcher']);
     await expect(stat(profileRoot)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 }

@@ -1,6 +1,6 @@
 import type { createConfigRepository } from '../config/repository';
 import type { ConfigState } from '../config/schema';
-import { createOptionsController, type EditorState } from './controller';
+import { createOptionsController, type EditorState, type RulesWriter } from './controller';
 import { previewDraft, type EditorDraft, type DuplicatePreview } from './model';
 import { createRuleRow, type RuleList } from './rows';
 
@@ -26,8 +26,8 @@ export function createOptionsView(state: ConfigState): OptionsView {
   return { heading: 'ChromeReHome installed', message: `${actions[state.reason]} Automatic replacement is unavailable.`, severity: 'error' };
 }
 
-export function mountOptions(elements: Elements, config: ReturnType<typeof createConfigRepository>) {
-  const controller = createOptionsController(config);
+export function mountOptions(elements: Elements, config: ReturnType<typeof createConfigRepository>, writeRules?: RulesWriter) {
+  const controller = createOptionsController(config, writeRules);
   const editor = elements.editor ? createEditorView(elements.editor, controller) : undefined;
   function render(state: EditorState): void {
     if (!state.saved) return;

@@ -10,6 +10,7 @@ export interface ConfigStorage {
 
 export function createConfigRepository(storage: ConfigStorage) {
   const listeners = new Set<(state: ConfigState) => void>();
+  const invalidationListeners = new Set<() => void>();
   let generation = 0;
   let disposed = false;
   let latestResult: { operation: number; state: ConfigState } | undefined;
@@ -28,6 +29,7 @@ export function createConfigRepository(storage: ConfigStorage) {
 
   async function load(): Promise<ConfigState> {
     const operation = ++generation;
+    if (!disposed) for (const listener of invalidationListeners) listener();
     let state: ConfigState;
     try {
       state = parseConfig(await storage.read());
@@ -42,6 +44,7 @@ export function createConfigRepository(storage: ConfigStorage) {
     const state = parseConfig(raw);
     if (state.kind === 'unavailable') return state;
     const operation = ++generation;
+    if (!disposed) for (const listener of invalidationListeners) listener();
     try {
       await storage.write(state.config);
     } catch {
@@ -63,6 +66,10 @@ export function createConfigRepository(storage: ConfigStorage) {
       return !disposed && latestResult?.operation === generation
         ? Object.freeze({revision:generation,state:latestResult.state}) : undefined;
     },
+    subscribeInvalidation(listener: () => void): () => void {
+      if (!disposed) invalidationListeners.add(listener);
+      return () => { invalidationListeners.delete(listener); };
+    },
     subscribe(listener: (state: ConfigState) => void): () => void {
       if (!disposed) listeners.add(listener);
       return () => { listeners.delete(listener); };
@@ -73,6 +80,7 @@ export function createConfigRepository(storage: ConfigStorage) {
       ++generation;
       detach();
       listeners.clear();
+      invalidationListeners.clear();
     },
   };
 }

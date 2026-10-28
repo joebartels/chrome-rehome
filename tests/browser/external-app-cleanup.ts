@@ -1,6 +1,7 @@
 import { rm } from 'node:fs/promises';
 
 type NativeResources = {
+  helper?: { dispose(): Promise<void> } | undefined;
   context: { close(): Promise<void> } | undefined;
   servers: readonly ({
     closeAllConnections(): void;
@@ -16,6 +17,7 @@ export async function cleanupExternalAppTrial(resources: NativeResources, testFa
   const attempt = async (release: () => unknown) => {
     try { await release(); } catch (error) { errors.push(error); }
   };
+  await attempt(() => resources.helper?.dispose());
   await attempt(() => resources.context?.close());
   for (const server of resources.servers) {
     if (!server) continue;

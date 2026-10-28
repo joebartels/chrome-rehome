@@ -178,10 +178,10 @@ test('propagates clean saves across pages and preserves dirty draft on conflict 
   await expect(second.getByRole('button', { name: 'Save settings', exact: true })).toBeEnabled();
 });
 
-test('a rejected Chrome write retains draft and permits a successful Save retry', async ({ editor: { page } }) => {
+test('a rejected worker Chrome write retains draft and permits a successful Save retry', async ({ editor: { context, page } }) => {
   await seed(page, empty); await addGroup(page);
   await page.getByLabel('URL to preview', { exact: true }).fill('https://editor.test/retained');
-  await page.evaluate(() => {
+  await context.serviceWorkers()[0]!.evaluate(() => {
     const original = chrome.storage.local.set.bind(chrome.storage.local);
     let fail = true;
     chrome.storage.local.set = ((value: Record<string, unknown>) => {
@@ -240,4 +240,19 @@ test('captures light dark wide and narrow editor layouts', async ({ editor: { pa
       await page.screenshot({ path: previewPath }); await info.attach(`${colorScheme}-${width}-preview`, { path: previewPath, contentType: 'image/png' });
     }
   }
+});
+
+
+test('worker pause preserves a dirty options draft and rules save preserves pause', async ({ editor: { page } }) => {
+  await seed(page, { ...empty, enabled: true }); await expect(page.getByRole('status')).toContainText('enabled');
+  await addGroup(page);
+  const pause = await page.evaluate(async () => {
+    const current = await chrome.runtime.sendMessage({ kind: 'get-status' });
+    return chrome.runtime.sendMessage({ kind: 'set-enabled', expected: current.status.version, enabled: false });
+  });
+  expect(pause).toMatchObject({ kind: 'ok', status: { phase: 'paused', savedEnabled: false } });
+  await expect(page.getByRole('status')).toContainText('disabled');
+  await expect(group(page).getByLabel(/group name$/i)).toHaveValue('Work');
+  await save(page); expect(await stored(page)).toEqual({ ...empty,
+    groupingRules: [{ enabled: true, pattern: 'https://editor.test/*', group: 'Work' }] });
 });

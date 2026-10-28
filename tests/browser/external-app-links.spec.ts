@@ -212,8 +212,7 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
     testFailed = true;
     throw error;
   } finally {
-    await helper?.dispose();
-    await cleanupExternalAppTrial({ context, servers: [http, https], launcher, profileRoot: root }, testFailed);
+    await cleanupExternalAppTrial({ helper, context, servers: [http, https], launcher, profileRoot: root }, testFailed);
   }
 }
 
