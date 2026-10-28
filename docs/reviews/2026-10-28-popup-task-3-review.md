@@ -79,3 +79,31 @@
 **Fix round:** All scoped findings addressed, no new Critical/Important breakage.
 
 **Open root-owned evidence:** unlocked execution of the newly added actual-native enlarged-text/keyboard assertions and the single green full browser suite. These are evidence gaps, not reopened I1 or a source-review failure.
+
+---
+
+# Task 3 verification repair round 2 scoped re-review
+
+## Finding Verdicts
+
+- **Native Enter input omitted carriage-return character fields and did not activate Pause/Resume — ADDRESSED.** `tests/browser/action-popup.ts:53` adds `text: '\r'` and `unmodifiedText: '\r'` only to Enter keydown. Tab/Shift+Tab and keyup stay unchanged. The native test now requires actual Paused/Active transitions plus trusted Enter keypress and trusted click events targeting each respective button (`tests/browser/controls.spec.ts:203`, `tests/browser/controls.spec.ts:213`). There is no DOM-click fallback, synthetic event dispatch, product bypass, weakened phase assertion or command retry in the repair.
+- **Causal and covering evidence — verified from existing records.** `task3-keyboard-event-evidence.json` preserves RED trusted Enter keydown/keyup on Pause with no keypress/click, then GREEN trusted keydown → keypress → click → keyup for Pause and Resume in both the focused and complete browser runs. Actual native metrics record 28px body text, 360px scroll width within a 375px inner viewport and the 600px native height. `task3-keyboard-verification.json` names the exact commands, result files and exit codes. The focused raw browser JSON records 1 expected/0 unexpected/0 skipped/0 flaky; the complete raw JSON records 151 expected/0 unexpected/0 skipped/0 flaky. The corresponding logs record 1 passing in 4.4s and 151 passing in 3.1m. The portable log records 1,225 passing/41 files, and the typecheck log has no diagnostics with structured exit 0.
+
+## New Breakage in the Fix Diff
+
+- **None found.** The input fix changes only the missing Enter character fields (`tests/browser/action-popup.ts:53`). Event tracing is read-only, begins after previous mouse interactions, distinguishes Pause and Resume by target ID, and requires trusted native events; it cannot satisfy the keyboard assertions through an old mouse click (`tests/browser/controls.spec.ts:197`). The trace and listeners belong to the action-popup realm, which is closed at test completion (`tests/browser/controls.spec.ts:217`). The fix package changes only the test helper and native test; no production/menu/build/policy source is touched.
+
+## Out-of-Scope Observations
+
+- **None newly raised.** Root independently inspected the actual enlarged active/paused native PNGs. This review checked the source, event/metric evidence and recorded execution results; it did not repeat image inspection, native execution or any prior product review. The prior scoped native-keyboard execution gap is now covered for the recorded Chromium runtime. This verdict does not introduce or review 008a menu work.
+
+## Checks and Scope
+
+- Read the supplied two-file diff once for `historical-revision` → `historical-revision`, the final native-repair appendix in `task-3-report.md`, exact command metadata and extracted event evidence. Compared the diff to the previously read Task 3 native-keyboard requirements.
+- Read existing focused/full raw JSON stats and log tails, portable results and typecheck output. No untouched source inspection, test rerun, browser/build/helper execution, git command/state mutation or delegation occurred. The only write was this requested review report.
+
+## Verdict
+
+**Repair:** ADDRESSED; no new Critical/Important breakage.
+
+**Fix round:** All scoped findings addressed. The recorded native execution supplies the previously missing real Enter activation and complete green browser evidence.

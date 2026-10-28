@@ -1,6 +1,6 @@
 # 008: Pause controls and replacement protections
 
-Status: implementation and independent source reviews complete (2026-10-28); final native verification pending manual desktop unlock. Task008 remains open; Task009 has not started.
+Status: complete and locally verified (2026-10-28). Task009 has not started; requested008a tab-menu protection is separate.
 
 Depends on: 006, 007
 
@@ -17,7 +17,7 @@ popup/; shared configuration; planning eligibility policy.
 - [x] Decide pinned/audible-tab behavior, deliberate duplicates/bypass, and form-edit protection. Browser metadata alone cannot reliably detect arbitrary unsaved edits.
 - [x] Keep any stronger page-inspection requirement optional and review its permissions separately.
 - [x] Provide global pause and clear status; configuration changes must invalidate queued work that is no longer eligible.
-- [ ] Test pause during queued replacement, protected duplicates, background opens, restored sessions, and normal/incognito separation.
+- [x] Test pause during queued replacement, protected duplicates, background opens, restored sessions, and normal/incognito separation.
 
 ## Implementation discipline
 
@@ -31,4 +31,4 @@ Use worker-owned global pause/resume and rules-only editor saves; retain schema4
 
 ## Verification status
 
-Final source historical-revision: root 1,225 portable tests / 41 files, typecheck, build, eight-file package and six headless popup cases pass. Delegated implementation, per-task reviews, whole-branch review and scoped fixes are complete with no open source findings. The complete current final 151-case browser run and strengthened actual-native enlarged-text/keyboard checks remain pending because the host relocked. These are required completion gates, not claimed passes. See [evidence and Chrome walkthrough](../../reviews/2026-10-28-pause-protections-completion.md).
+Final production070a9f8/test-only repair595db69: **1,225 portable tests/41 files**, typecheck, build, strict eight-file package and **151/151 browser tests** pass. Actual native enlarged text, keyboard focus/Enter Pause+Resume and explicitly enabled incognito are verified. Per-task and whole-branch reviews plus scoped fixes are complete with no open findings. The package preserves default-off and existing rules/activation. See [evidence and Chrome walkthrough](../../reviews/2026-10-28-pause-protections-completion.md).

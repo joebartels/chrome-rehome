@@ -1,6 +1,6 @@
 # Task008 — pause controls and replacement protections
 
-Status: implementation and independent source reviews complete; final native verification is pending a manual desktop unlock. Task008 is not yet marked complete. Task009 has not started.
+Status: complete and locally verified on 2026-10-28. Task009 has not started. The separately requested008a per-tab context menu is a follow-up to this completed base.
 
 ## Behavior
 
@@ -22,7 +22,9 @@ Task3 independent review found a missing popup-driven duplicate-closure cycle. T
 
 Root independently reran typecheck, all **1,225 unit/integration tests across 41 files**, build and exact eight-file package validation on final source historical-revision successfully. The final rebuilt package hashes match the author's record. Root also passed all **six headless popup browser cases** on the final package in 5.8s, with no color warning. The strengthened real-browser headless closure cycle passed independently before the final UI-only fix (1/1, 1.8s), and again within the six final-build popup cases.
 
-Native evidence is explicit: all 144 existing browser cases passed on the popup build, and all seven popup cases (including actual native toolbar and explicitly enabled incognito) passed in a separate current-build run. A full 151-case run passed 150 and exposed an invalid test assumption that about:blank has no valid frame; the corrected real-adapter failure case passed separately. A later full run was interrupted when the Mac relocked. No native assertions were weakened or security/idle settings changed. A single uninterrupted green full run and execution of the newly tracked actual-native enlarged-text/keyboard assertions remain pending a manual unlock. These pending checks are not claimed passed. Root's final read-only AppKit check still reported the login window, so no native activation was attempted. The live SDD workspace is retained for resumption; it must not be deleted before those gates close.
+Final native verification passed after manual unlock: **151/151 browser tests in one 3.1m run**, zero unexpected/skipped/flaky tests, no retries and zero top-level errors. Actual popup text at28px,360px width/no horizontal overflow, Tab/Shift+Tab focus outlines, Enter Pause/Resume and real incognito all passed. Root read raw structured stats, verified package identity and independently inspected actual enlarged active/paused native PNGs. The test-only Enter helper originally omitted carriage-return text; trusted-event diagnostics proved keydown/up without keypress/click. Repair595db69 adds only the missing character fields; trusted keypress/click and actual phase transitions now pass. Its scoped independent review found no new Critical/Important issue. Earlier host-lock failures and invalid fixture assumptions remain preserved as historical evidence, not counted as passes.
+
+Final production code remains070a9f8; test-only repair595db69 leaves all eight distribution bytes unchanged. Bundled native runtime was Chromium156.0.8078.4; this is not a claim of Chrome120/current-stable release-matrix execution. No personal profile, lock/security setting or idle-prevention change was used.
 
 ## Chrome walkthrough
 
@@ -44,8 +46,8 @@ Native evidence is explicit: all 144 existing browser cases passed on the popup 
 
 Task009 regression/default-activation work and Task010 release/performance checks remain pending. Chrome120 and current-stable release-matrix execution, hosted CI and interactive drag/rejection trials are not claimed. Task011 records the requested future bounded recent-tabs popup across windows; no recent-tab tracking/list is implemented in Task008.
 
-## Trial artifact and resumption
+## Trial artifact and verification archive
 
-The eight-file local trial ZIP is `ChromeReHome-task008-trial.zip` in the chat outputs, SHA-256 `a86d920ea6e0c20a559ec567deea4b6ff1446075924f4d21187cc6d197bc051e`. ZIP CRC, exact entry count and byte identity against the final checked dist were verified. This is a trial artifact with pending native validation, not a release-readiness claim.
+The checked eight-file local trial ZIP is `ChromeReHome-task008-trial.zip` in the chat outputs, SHA-256 `a86d920ea6e0c20a559ec567deea4b6ff1446075924f4d21187cc6d197bc051e`. ZIP CRC, exact entry count and byte identity against the final checked dist were verified. This completes Task008's local trial gate; later release-readiness work remains pending.
 
-Resume from `.superpowers/sdd/2026-10-28-pause-protections/progress.md`. No implementation/review redispatch is needed. After manual unlock, run the current full 151-case suite with exclusive native ownership, inspect the actual native 28px/keyboard captures, confirm package hashes, update the completion/plan/task records, archive verification and only then remove the owned SDD workspace. Keep Task009 paused.
+`ChromeReHome-task008-verification.zip` preserves the full ledger, briefs, reports, diffs, RED/GREEN logs, partial historical runs, final151 JSON, screenshots, native event proof and package hashes. The owned SDD workspace is removed only after archive CRC/count verification and checking it contains no tracked files. No Task009 work has begun. User subsequently requested008a **Protect/Unprotect the right-clicked tab**, explicitly correcting an initial global-Pause interpretation; that follow-up uses its own design and verification record.

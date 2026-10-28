@@ -102,3 +102,8 @@ Read production and test changes from the supplied package in bounded chunks, al
 ## Verdict
 
 **Fix round: All findings addressed, no new Critical/Important breakage.** M1 is closed. No further fix wave is requested by this review. Final native verification gates V1/V2 remain open.
+
+
+## Controller verification closeout — 2026-10-28
+
+V1 and V2 are closed by the final byte-identical production package run: **151/151 browser cases**, no failures, skips, flakiness or retries, in 3.1m. The native Enter helper repair historical-revision passed scoped independent review. Trusted keypress/click and actual phase changes prove keyboard Pause/Resume; root independently inspected actual native enlarged active/paused captures. Root read raw structured stats (151 expected, zero unexpected/skipped/flaky/errors) and verified the unchanged eight-file package hashes. Portable **1,225/41**, typecheck, build and strict package checks passed. Historical pending verdicts above are retained as the review record; their evidence gates are now resolved. Task008 base is complete; separately requested008a tab-menu protection is not part of this reviewed range.
