@@ -50,7 +50,8 @@ export async function attachActionPopup(context: BrowserContext, url: string) {
     async press(key: 'Tab' | 'Enter', shift = false) {
       const keyCode = key === 'Tab' ? 9 : 13;
       const event = { key, code: key, windowsVirtualKeyCode: keyCode, modifiers: shift ? 8 : 0 };
-      await send('Input.dispatchKeyEvent', { type: key === 'Tab' ? 'rawKeyDown' : 'keyDown', ...event });
+      await send('Input.dispatchKeyEvent', { type: key === 'Tab' ? 'rawKeyDown' : 'keyDown', ...event,
+        ...(key === 'Enter' ? { text: '\r', unmodifiedText: '\r' } : {}) });
       await send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
     },
     async screenshot(info: TestInfo, name: string) {

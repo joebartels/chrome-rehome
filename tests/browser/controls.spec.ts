@@ -194,13 +194,26 @@ test('native action popup uses the actual selected web tab and owned-profile inc
   await action.press('Tab',true); await expect.poll(()=>action.evaluate('document.activeElement.id')).toBe('pause');
   expect(await action.evaluate('getComputedStyle(document.activeElement).outlineStyle')).toBe('solid');
   await action.screenshot(info,'native-action-enlarged-keyboard-active');
-  await action.press('Enter'); await expect.poll(action.heading).toBe('Paused');
+  await action.evaluate(`(() => {
+    window.nativeKeyboardTrace=[];
+    for (const type of ['keydown','keypress','keyup','click']) document.addEventListener(type,event=>{
+      window.nativeKeyboardTrace.push({type:event.type,key:event.key,code:event.code,targetId:event.target.id,trusted:event.isTrusted,defaultPrevented:event.defaultPrevented});
+    },true);
+  })()`);
+  await action.press('Enter');
+  await info.attach('native-pause-enter-events',{body:JSON.stringify(await action.evaluate('window.nativeKeyboardTrace')),contentType:'application/json'});
+  await expect.poll(action.heading).toBe('Paused');
+  expect(await action.evaluate('window.nativeKeyboardTrace.some(event=>event.type==="keypress"&&event.key==="Enter"&&event.trusted&&event.targetId==="pause")')).toBe(true);
+  expect(await action.evaluate('window.nativeKeyboardTrace.some(event=>event.type==="click"&&event.trusted&&event.targetId==="pause")')).toBe(true);
   await action.evaluate('document.querySelector("#pause").focus()');
   await action.press('Tab'); await expect.poll(()=>action.evaluate('document.activeElement.id')).toBe('resume');
   expect(await action.evaluate('getComputedStyle(document.activeElement).outlineStyle')).toBe('solid');
   expect(await action.evaluate('document.documentElement.scrollWidth > innerWidth')).toBe(false);
   await action.screenshot(info,'native-action-enlarged-keyboard-paused');
   await action.press('Enter'); await expect.poll(action.heading).toBe('Active');
+  expect(await action.evaluate('window.nativeKeyboardTrace.some(event=>event.type==="keypress"&&event.key==="Enter"&&event.trusted&&event.targetId==="resume")')).toBe(true);
+  expect(await action.evaluate('window.nativeKeyboardTrace.some(event=>event.type==="click"&&event.trusted&&event.targetId==="resume")')).toBe(true);
+  await info.attach('native-keyboard-events',{body:JSON.stringify(await action.evaluate('window.nativeKeyboardTrace')),contentType:'application/json'});
   await action.close();
   const extensions=await context.newPage(); await extensions.goto('chrome://extensions/?id='+extensionId);
   const developerMode=extensions.locator('extensions-toolbar #devMode');
