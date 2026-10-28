@@ -1,3 +1,4 @@
+import { foregroundFixture } from '../fixtures/replacement';
 import { describe, expect, it, vi } from 'vitest';
 import { createReplacementExecutor } from '../../src/execution/replacement';
 import { createOperationQueue } from '../../src/background/operation-queue';
@@ -606,4 +607,104 @@ it('a target present outside affected windows in the final verification snapshot
   expect(result).toMatchObject({ kind: 'stopped', removedTabIds: [], uncertainRemovalId: 2 });
   expect(f.calls).toEqual(['remove:2']);
   expect(f.writes.some(value => value.removedTabIds.includes(2))).toBe(false);
+});
+
+it('foreground placement journals activate then focus before placed and removal, preserving native source successor',async()=>{
+  const f=foregroundFixture({grouped:true});
+  const result=await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);
+  expect(result.kind).toBe('completed');expect(f.calls).toEqual(['move','group','activate','focus','remove:2']);
+  expect(f.attention()).toEqual({focusedWindowId:20,activeTabs:[{windowId:10,tabId:4},{windowId:20,tabId:1}]});
+  expect(f.snapshot.groups).toMatchObject([{id:8,collapsed:false}]);
+  expect(f.writes.filter(w=>w.pending).map(w=>w.pending!.kind)).toEqual(['move','group','activate','focus','remove']);
+  expect(f.writes.findIndex(w=>w.completedPhase==='focus')).toBeLessThan(f.writes.findIndex(w=>w.completedPhase==='placed'));
+});
+it('deliberate background keeps source/destination active spares, focus, and collapse',async()=>{
+  const f=foregroundFixture({preserve:true,grouped:true});const before=f.attention();
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('completed');
+  expect(f.attention()).toEqual(before);expect(f.snapshot.groups).toMatchObject([{id:8,collapsed:true}]);
+  expect(f.calls).toEqual(['move','group','remove:2']);
+});
+it('foreground lone-source native focus continuation needs only activation',async()=>{
+  const f=foregroundFixture({lone:true});
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('completed');
+  expect(f.calls).toEqual(['move','activate','remove:2']);expect(f.attention()).toEqual({focusedWindowId:20,activeTabs:[{windowId:20,tabId:1}]});
+});
+it.each(['activate','focus'] as const)('native %s failure preserves cause and prevents removal',async kind=>{
+  const f=foregroundFixture();const cause={native:kind};f.port[kind==='activate'?'activateTab':'focusWindow']=async()=>{throw cause;};
+  const result=await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);
+  expect(result).toMatchObject({kind:'stopped',cause,removedTabIds:[],placement:{kind:'failed',phase:kind}});
+  if(result.kind==='stopped')expect(result.cause).toBe(cause);expect(f.removed).toEqual([]);
+});
+it.each(['journal:pending:activate','journal:pending:focus','snapshot','document:1'])('user attention change during %s revokes presentation and closure',async at=>{
+  const f=foregroundFixture();let hit=false;
+  f.boundary(async name=>{if(name===at&&!hit){hit=true;f.focus(20);}});
+  const result=await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);
+  expect(hit).toBe(true);expect(result.kind).toBe('stopped');expect(f.removed).toEqual([]);
+  if(at==='journal:pending:activate')expect(f.calls).toEqual(['move']);
+  if(at==='journal:pending:focus')expect(f.calls).toEqual(['move','activate']);
+});
+
+it('attention change during durable placed receipt prevents subsequent removal',async()=>{
+  const f=foregroundFixture();f.boundary(async name=>{if(name==='journal:placed')f.focus(10);});
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('stopped');
+  expect(f.removed).toEqual([]);
+});
+
+it.each(['activate','focus'] as const)('each %s persistence/native/verification failure stops closure',async kind=>{
+  for(const fault of ['pending-write','guard','native-reject','settled-write','verified-change','unknown-attention'] as const){
+    const f=foregroundFixture();const method=kind==='activate'?'activateTab':'focusWindow';const cause={kind,fault};let issued=false;let hit=false;
+    const native=f.port[method];f.port[method]=async id=>{issued=true;if(fault==='native-reject')throw cause;await native(id);};
+    const write=f.storage.write;f.storage.write=async value=>{
+      if(fault==='pending-write'&&value.pending?.kind===kind){hit=true;throw cause;}
+      if(fault==='settled-write'&&issued&&value.pending===null){hit=true;throw cause;}
+      await write(value);
+    };
+    f.boundary(async name=>{
+      if(name==='journal:pending:'+kind&&fault==='guard'){hit=true;f.revoke();}
+      if(name==='journal:'+kind&&fault==='verified-change'){hit=true;f.focus(kind==='activate'?20:10);}
+      if(name==='journal:pending:'+kind&&fault==='unknown-attention'){hit=true;f.port.readPresentation=async()=>undefined;}
+    });
+    const result=await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);
+    expect(result.kind,fault).toBe('stopped');expect(f.removed,fault).toEqual([]);
+    expect(hit||fault==='native-reject',fault).toBe(true);
+    if(fault==='pending-write'||fault==='guard'||fault==='unknown-attention')expect(issued,fault).toBe(false);
+    if(fault==='pending-write'||fault==='settled-write')expect(f.journal.isBlocked(),fault).toBe(true);
+    if(fault==='native-reject'&&result.kind==='stopped')expect(result.cause).toBe(cause);
+  }
+});
+it.each(['activate','focus'] as const)('unresolved %s holds queue until actual native settlement without timeout or removal',async kind=>{
+  const f=foregroundFixture();const entered=deferred<void>();const release=deferred<void>();const method=kind==='activate'?'activateTab':'focusWindow';const native=f.port[method];
+  f.port[method]=async id=>{entered.resolve();await release.promise;await native(id);};
+  const queue=createOperationQueue();let finished=false;let next=false;
+  const pending=queue.run(()=>createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).then(r=>{finished=true;return r;});
+  await entered.promise;const queued=queue.run(async()=>{next=true;});f.revoke();await Promise.resolve();
+  expect(finished).toBe(false);expect(next).toBe(false);expect(f.stored).toMatchObject({version:2,pending:{kind,tabId:1}});
+  release.resolve();expect((await pending).kind).toBe('stopped');await queued;expect(next).toBe(true);expect(f.removed).toEqual([]);
+});
+it('freezes the native source successor and rejects a later source selection change',async()=>{
+  const f=foregroundFixture();let hit=false;f.boundary(async name=>{if(name==='journal:pending:activate'){hit=true;f.select(10,999);}});
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('stopped');
+  expect(hit).toBe(true);expect(f.calls).toEqual(['move']);expect(f.removed).toEqual([]);
+});
+it('disappeared source without observed destination focus stops conservatively',async()=>{
+  const f=foregroundFixture({lone:true});const move=f.port.moveTab;f.port.moveTab=async(...args)=>{await move(...args);f.focus(999);};
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('stopped');expect(f.removed).toEqual([]);
+});
+
+it.each(['snapshot','document:1','document:2'])('attention change during presentation preflight %s after pending persistence stops the native call',async at=>{
+  const f=foregroundFixture();let armed=false;let hit=false;
+  f.boundary(async name=>{
+    if(name==='journal:pending:activate')armed=true;
+    if(armed&&name===at&&!hit){hit=true;f.focus(20);}
+  });
+  expect((await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard)).kind).toBe('stopped');
+  expect(hit).toBe(true);expect(f.calls).toEqual(['move']);expect(f.removed).toEqual([]);
+});
+it.each(['activate','focus'] as const)('original %s rejection survives an independent settlement write failure',async kind=>{
+  const f=foregroundFixture();const cause={native:kind};let issued=false;
+  f.port[kind==='activate'?'activateTab':'focusWindow']=async()=>{issued=true;throw cause;};
+  const write=f.storage.write;f.storage.write=async value=>{if(issued&&value.pending===null)throw Error('storage');await write(value);};
+  const result=await createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);
+  expect(result.kind).toBe('stopped');if(result.kind==='stopped')expect(result.cause).toBe(cause);
+  expect(f.journal.isBlocked()).toBe(true);expect(f.stored).toMatchObject({pending:{kind}});expect(f.removed).toEqual([]);
 });

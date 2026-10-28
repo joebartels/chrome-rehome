@@ -1,3 +1,4 @@
+import { planPresentation } from '../planning/presentation';
 import type { createDiagnostics } from '../diagnostics/diagnostics';
 import { createReplacementExecutor, type ReplacementPort } from '../execution/replacement';
 import type { createReplacementJournal } from '../execution/journal';
@@ -30,6 +31,11 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
       if (!guard.isCurrent()) return;
       const selection = selectCandidates(event, snapshot.tabs, view, identity, { allowNoDuplicates: true });
       if (selection.kind === 'skip') return;
+      const initialTab = snapshot.tabs.find(tab=>tab.id === selection.winner.id);
+      const uniqueInitialSelection = snapshot.tabs.filter(tab=>tab.windowId === selection.winner.windowId && tab.active === true).length === 1;
+      const presentation = planPresentation(selection.winner.id, selection.winner.windowId,
+        uniqueInitialSelection ? initialTab?.active : undefined, await port.readPresentation());
+      if (!guard.isCurrent()) return;
       const groupTitle = grouping.match(selection.winner.url!)?.group;
       const ids = [
         selection.winner.id,
@@ -44,6 +50,7 @@ export function createPlacementConsumer({ tracker, port, journal, diagnostics }:
       }
       const plan = planReplacement({
         selection,
+        presentation,
         view,
         snapshot,
         documents,

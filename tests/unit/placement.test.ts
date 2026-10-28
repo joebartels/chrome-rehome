@@ -14,6 +14,9 @@ function setup(tabs = [tab(1,0),tab(2,1)], groups: {id:number;windowId:number;ti
     snapshot = {...snapshot, groups:snapshot.groups.filter(g=>snapshot.tabs.some(t=>t.groupId===g.id))};
   }
   const port: PlacementPort = {
+    async readPresentation(){return undefined;},
+    async activateTab(){throw Error('unexpected activate');},
+    async focusWindow(){throw Error('unexpected focus');},
     async read() { await boundary('read'); return structuredClone(snapshot); },
     async readDocument(id) { await boundary('document'); return doc(id); },
     async ungroupTab(id) { calls.push('ungroup'); snapshot={...snapshot,tabs:snapshot.tabs.map(t=>t.id===id?{...t,groupId:-1}:t)}; normalize(); await boundary('ungroup'); },
@@ -143,4 +146,39 @@ it('remote rule group disappearing during pending move persistence prevents the 
   const pending=createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard);await started.promise;
   f.change(s=>({tabs:s.tabs.map(t=>t.id===3?{...t,groupId:-1}:t),groups:[]}));release.resolve();
   expect(await pending).toEqual({kind:'skipped',reason:'state-changed'});expect(f.calls).toEqual([]);
+});
+
+it('already active and focused foreground same-window placement makes no presentation calls',async()=>{
+  const f=setup([tab(1,0,{active:true})]);const state={focusedWindowId:10,activeTabs:[{windowId:10,tabId:1}]};
+  f.port.readPresentation=async()=>state;
+  expect(await createPlacementExecutor({port:f.port}).execute({...f.plan,presentation:{kind:'foreground',sourceWindowId:10,initial:state}},f.guard)).toMatchObject({kind:'unchanged',presentation:state});
+  expect(f.calls).toEqual([]);
+});
+
+it('acknowledged invalid group result still settles its durable native pending marker',async()=>{
+  const f=setup([tab(1,0)],[],'Work');f.port.groupTab=async()=>-1;let settled=false;
+  const checkpoints={beforeMutation:async()=>{},afterSettlement:async()=>{settled=true;},afterVerification:async()=>{throw Error('invalid result cannot verify');}};
+  expect(await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard)).toMatchObject({kind:'failed',effects:[{phase:'group',outcome:'acknowledged'}]});
+  expect(settled).toBe(true);
+});
+
+it.each(['group','title'] as const)('global new-group intent rejects a fresh same-context match during pending %s persistence',async phase=>{
+  for(const change of ['create','rename'] as const){
+    const f=setup([tab(1,0),tab(3,0,{windowId:30,groupId:change==='rename'?8:-1,url:'https://foreign.test/'})],
+      change==='rename'?[{id:8,windowId:30,title:'Other'}]:[],'Work');
+    let hit=false;const checkpoints={beforeMutation:async(kind:string)=>{
+      if(kind===phase){hit=true;f.change(snapshot=>({...snapshot,tabs:snapshot.tabs.map(t=>t.id===3?{...t,groupId:8}:t),
+        groups:[...snapshot.groups.filter(g=>g.id!==8),{id:8,windowId:30,title:'Work'}]}));}
+    },afterSettlement:async()=>{},afterVerification:async()=>{}};
+    const result=await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard);
+    expect(hit,change).toBe(true);expect(result.kind,change).toBe(phase==='group'?'skipped':'failed');
+    expect(f.calls,change).toEqual(phase==='group'?[]:['group']);
+    if(phase==='title')expect(f.snapshot.groups.find(g=>g.id===99)?.title).toBe('');
+  }
+});
+it.each(['group','title'] as const)('fresh matching title in different incognito context during %s does not revoke creation',async phase=>{
+  const f=setup([tab(1,0),tab(3,0,{windowId:30,incognito:true,url:'https://foreign.test/'})],[],'Work');
+  const checkpoints={beforeMutation:async(kind:string)=>{if(kind===phase)f.change(snapshot=>({...snapshot,tabs:snapshot.tabs.map(t=>t.id===3?{...t,groupId:8}:t),groups:[...snapshot.groups,{id:8,windowId:30,title:'Work'}]}));},afterSettlement:async()=>{},afterVerification:async()=>{}};
+  expect((await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard)).kind).toBe('placed');
+  expect(f.calls).toEqual(['group','title']);
 });

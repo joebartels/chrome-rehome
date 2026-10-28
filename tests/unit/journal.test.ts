@@ -20,7 +20,7 @@ describe('strict v1 journal', () => {
     const f=fixture(raw);expect(await f.journal.load()).toEqual(read);expect(f.calls).toEqual(['read']);
   });
   const invalid: [string, () => unknown][] = [
-    ['null',()=>null], ['future',()=>record({version:2 as 1})], ['unknown root',()=>({...record(),url:'secret'})],
+    ['null',()=>null], ['future',()=>record({version:99 as 1})], ['unknown root',()=>({...record(),url:'secret'})],
     ['inherited field',()=>Object.assign(Object.create({version:1}),{...record(),version:undefined})],
     ['inherited required',()=>{const r:Record<string,unknown>={...record()};delete r.version;return Object.assign(Object.create({version:1}),r);}],
     ['extra participant',()=>record({participants:[{tabId:1,incognito:false,documentId:'d',url:'secret'} as never]})],
@@ -82,5 +82,31 @@ describe('strict v1 journal', () => {
       }
     }
     const writes=f.storage.write.mock.calls.length;const clears=f.storage.clear.mock.calls.length;expect(f.journal.isBlocked()).toBe(true);await expect(f.journal.settled()).rejects.toThrow();await expect(f.journal.clear()).rejects.toThrow();expect(f.storage.write).toHaveBeenCalledTimes(writes);expect(f.storage.clear).toHaveBeenCalledTimes(clears);
+  });
+});
+
+describe('version 2 presentation receipts',()=>{
+  it.each(['activate','focus'] as const)('accepts pending and settled %s before placed, retaining strict version 1 grammar',kind=>{
+    const pending={sequence:1,kind,tabId:1};
+    expect(parseJournal(record({version:2,sequence:1,pending}))).toMatchObject({kind:'valid',value:{version:2,pending}});
+    expect(parseJournal(record({version:2,sequence:1,completedPhase:kind}))).toMatchObject({kind:'valid'});
+    expect(parseJournal(record({version:1,sequence:1,pending}))).toEqual({kind:'invalid'});
+    expect(parseJournal(record({version:1,sequence:1,completedPhase:kind}))).toEqual({kind:'invalid'});
+    for(const extra of [{completedPhase:'placed'}, {completedPhase:'removed',removedTabIds:[2]}, {pending:{...pending,tabId:2}}, {pending:{...pending,sequence:2}}, {pending:{...pending,windowId:10}}, {sequence:0,pending:null,completedPhase:kind}])
+      expect(parseJournal({...record({version:2,sequence:1,pending}),...extra})).toEqual({kind:'invalid'});
+  });
+  it('bounds version 2 sequences at 107 and version 1 at 105 without relaxing removal prefixes',()=>{
+    expect(parseJournal(record({version:2,sequence:107}))).toMatchObject({kind:'valid'});
+    expect(parseJournal(record({version:2,sequence:108}))).toEqual({kind:'invalid'});
+    expect(parseJournal(record({version:1,sequence:106}))).toEqual({kind:'invalid'});
+    expect(parseJournal(record({version:2,sequence:2,completedPhase:'removed',removedTabIds:[3]}))).toEqual({kind:'invalid'});
+  });
+  it('writes only version 2 and journals activate then focus before placed',async()=>{
+    const f=fixture();await f.journal.begin(record().participants);
+    expect(f.stored).toMatchObject({version:2});
+    for(const kind of ['activate','focus'] as const){await f.journal.beforeMutation(kind,1);expect(parseJournal(f.stored)).toMatchObject({kind:'valid'});await f.journal.settled();await f.journal.verified(kind);}
+    await f.journal.verified('placed');
+    await expect(f.journal.beforeMutation('focus',1)).rejects.toThrow();
+    expect(f.stored).toMatchObject({version:2,completedPhase:'placed',pending:null,sequence:2});
   });
 });

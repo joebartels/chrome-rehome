@@ -6,7 +6,7 @@ export const navigation = { epoch, tabId: 1, generation: 1, observedSequence: 1,
 export const view = { epoch, revision: 1, navigations: [navigation], blockedTabIds: [] };
 export const identity = compileDuplicateRules([]);
 if (identity.kind !== 'ready') throw Error('rules');
-export function tab(id: number, index: number, extra: Partial<CandidateTab> = {}): CandidateTab {
+export function tab(id: number, index: number, extra: Partial<CandidateTab & {active:boolean}> = {}): CandidateTab & {active?:boolean} {
   return { id, index, windowId: 10, groupId: -1, pinned: false, incognito: false, url: navigation.url, ...extra };
 }
 export function doc(id: number, extra: Partial<PlacementDocument> = {}): PlacementDocument {

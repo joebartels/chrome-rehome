@@ -35,6 +35,9 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
       tabs.filter(tab => tab.windowId === windowId).sort((a,b) => a.index-b.index).map((tab,index) => ({...tab,index})));
   }
   const port: ReplacementPort = {
+    async readPresentation(){return undefined;},
+    async activateTab(){throw Error('unexpected activate');},
+    async focusWindow(){throw Error('unexpected focus');},
     removeTab: async id => {
       removed.push(id);
       tabs = tabs.filter(tab => tab.id !== id);
@@ -174,4 +177,35 @@ it('production consumer routes a grouping-only incoming tab into the remote exis
   expect(result.groups).toEqual([{id:8,windowId:20,title:'Work'}]);
   expect(f.removed).toEqual([]);
   expect(f.frames.every(id=>id===1)).toBe(true);
+});
+
+it.each([true,false,undefined])('consumer captures raw first active=%s before candidate copying and native transfer',async active=>{
+  const f=fixture(enabled,true,undefined,{tabs:[
+    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',...(active===undefined?{}:{active})},
+    {id:4,windowId:10,index:1,groupId:-1,pinned:false,incognito:false,url:'https://source.test/',active:!active},
+    {id:2,windowId:20,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:false},
+    {id:3,windowId:20,index:1,groupId:-1,pinned:false,incognito:false,url:'https://spare.test/',active:true}
+  ],groups:[]});
+  let attention={focusedWindowId:10,activeTabs:[{windowId:10,tabId:1},{windowId:20,tabId:3}]};
+  const presentation:string[]=[];f.port.readPresentation=async()=>structuredClone(attention);
+  const move=f.port.moveTab;f.port.moveTab=async(...args)=>{await move(...args);attention={...attention,activeTabs:[{windowId:10,tabId:4},{windowId:20,tabId:3}]};};
+  f.port.activateTab=async id=>{presentation.push('activate:'+id);attention={...attention,activeTabs:[{windowId:10,tabId:4},{windowId:20,tabId:id}]};};
+  f.port.focusWindow=async id=>{presentation.push('focus:'+id);attention={...attention,focusedWindowId:id};};
+  await f.coordinator.handle(input());
+  expect(f.removed).toEqual([2]);expect((await f.port.read()).tabs.find(t=>t.id===1)?.windowId).toBe(20);
+  expect(presentation).toEqual(active===true?['activate:1','focus:20']:[]);
+});
+it('unknown attention allows valid duplicate placement without activation',async()=>{
+  const f=fixture(enabled,true);f.port.readPresentation=async()=>undefined;
+  await f.coordinator.handle(input());expect(f.removed).toEqual([2]);expect((await f.port.read()).tabs[0]?.windowId).toBe(20);
+});
+
+it('contradictory first snapshot selection preserves intent while allowing core placement',async()=>{
+  const f=fixture(enabled,true,undefined,{tabs:[
+    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:true},
+    {id:4,windowId:10,index:1,groupId:-1,pinned:false,incognito:false,url:'https://source.test/',active:true},
+    {id:2,windowId:20,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/',active:true}
+  ],groups:[]});
+  let reads=0;f.port.readPresentation=async()=>{reads++;return {focusedWindowId:10,activeTabs:[{windowId:10,tabId:1},{windowId:20,tabId:2}]};};
+  await f.coordinator.handle(input());expect(f.removed).toEqual([2]);expect(reads).toBe(1);
 });

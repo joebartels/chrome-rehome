@@ -18,12 +18,12 @@ test.afterAll(async () => {
   await new Promise<void>((done, fail) => server.close(e => e ? fail(e) : done()));
 });
 
-async function fixture(run: (context: BrowserContext, options: Page) => Promise<void>) {
+async function fixture(run: (context: BrowserContext, options: Page) => Promise<void>, headed = false) {
   const profile = await mkdtemp(join(tmpdir(), 'chromerehome-placement-'));
   const extension = resolve('dist');
   const context = await chromium.launchPersistentContext(profile, {
     channel: 'chromium',
-    headless: true,
+    headless: !headed,
     args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
   });
   try {
@@ -299,3 +299,90 @@ test('production grouping-only reuses remote Group A without a competing source 
   expect(await options.evaluate(()=>chrome.tabGroups.query({}))).toEqual(beforeGroups);
   await config(options,undefined,false);await winner.goBack();expect(winner.url()).toBe(origin+'/before');
 }));
+
+for (const destination of ['rule','manual','ungrouped'] as const) {
+  for (const background of [false,true]) {
+    test(`native production remote ${destination} ${background?'Cmd-click background':'foreground click'} attention`,async({},info)=>{
+      test.skip(process.platform!=='darwin','Requires macOS headed native focus and Cmd-click.');
+      await fixture(async(context,options)=>{
+        const anchor=await context.newPage();await anchor.goto(origin+(destination==='rule'?'/member':'/target'));const anchorId=await id(options,anchor);
+        const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
+        const setup=await options.evaluate(async({anchorId,sourceId,destination,origin})=>{
+          const sourceWindow=(await chrome.tabs.get(sourceId)).windowId;
+          const remote=(await chrome.windows.create({tabId:anchorId,focused:false}))!.id!;
+          const spare=await chrome.tabs.create({windowId:remote,url:origin+'/destination-spare',active:true});
+          const sourceSpare=await chrome.tabs.create({windowId:sourceWindow,url:origin+'/source-spare',active:false});
+          let groupId=-1;
+          if(destination!=='ungrouped'){
+            groupId=await chrome.tabs.group({tabIds:[anchorId],createProperties:{windowId:remote}});
+            await chrome.tabGroups.update(groupId,{title:destination==='rule'?'Group A':'Manual B',collapsed:true});
+          }
+          if(destination!=='rule'){
+            const member=await chrome.tabs.create({windowId:sourceWindow,url:origin+'/competing-rule-member',active:false});
+            const rule=await chrome.tabs.group({tabIds:[member.id!],createProperties:{windowId:sourceWindow}});
+            await chrome.tabGroups.update(rule,{title:'Group A',collapsed:true});
+          }
+          return {sourceWindow,remote,spare:spare.id!,sourceSpare:sourceSpare.id!,groupId};
+        },{anchorId,sourceId,destination,origin});
+        await expect.poll(async()=>(await tabs(options)).every(t=>t.status==='complete')).toBe(true);
+        await config(options,'Group A');
+        await options.evaluate(async({sourceId,sourceWindow})=>{await chrome.tabs.update(sourceId,{active:true});await chrome.windows.update(sourceWindow,{focused:true});},{sourceId,sourceWindow:setup.sourceWindow});
+        const attention=()=>options.evaluate(async()=>({tabs:await chrome.tabs.query({windowType:'normal'}),windows:await chrome.windows.getAll({windowTypes:['normal']}),groups:await chrome.tabGroups.query({})}));
+        await expect.poll(async()=>(await attention()).windows.filter(w=>w.focused).map(w=>w.id)).toEqual([setup.sourceWindow]);
+        const before=await attention();expect(before.tabs.find(t=>t.id===sourceId)?.active).toBe(true);expect(before.tabs.find(t=>t.id===setup.spare)?.active).toBe(true);
+        let incoming=source;
+        if(background){const opened=context.waitForEvent('page');await source.getByRole('link').click({modifiers:['Meta']});incoming=await opened;await incoming.waitForURL(origin+'/target');}
+        else await source.getByRole('link').click();
+        const incomingId=background?(await tabs(options)).find(t=>t.url===origin+'/target'&&t.id!==anchorId)!.id!:sourceId;
+        await expect.poll(async()=>{const state=await tabs(options);const winner=state.find(t=>t.id===incomingId);return {windowId:winner?.windowId,groupId:winner?.groupId,oldPresent:state.some(t=>t.id===anchorId)};})
+          .toEqual({windowId:setup.remote,groupId:setup.groupId,oldPresent:destination==='rule'});
+        await expect.poll(async()=>{
+          const state=await attention();return {focused:state.windows.filter(w=>w.focused).map(w=>w.id),destinationActive:state.tabs.filter(t=>t.windowId===setup.remote&&t.active).map(t=>t.id)};
+        }).toEqual({focused:[background?setup.sourceWindow:setup.remote],destinationActive:[background?setup.spare:incomingId]});
+        const after=await attention();
+        if(background){expect(after.tabs.find(t=>t.id===sourceId)?.active).toBe(true);expect(after.tabs.filter(t=>t.active).map(t=>t.id).sort()).toEqual(before.tabs.filter(t=>t.active).map(t=>t.id).sort());}
+        if(setup.groupId!==-1)expect(after.groups.find(g=>g.id===setup.groupId)?.collapsed).toBe(background);
+        expect(after.tabs.find(t=>t.id===incomingId)?.url).toBe(origin+'/target');
+        const evidencePath=info.outputPath('native-attention.json');await writeFile(evidencePath,JSON.stringify({version:context.browser()!.version(),destination,background,setup,sourceId,incomingId,before,after},null,2));await info.attach('native-attention',{path:evidencePath,contentType:'application/json'});
+        if(!background){await config(options,undefined,false);await incoming.goBack();expect(incoming.url()).toBe(origin+'/before');}
+      },true);
+    });
+  }
+}
+
+test('native production restores minimized remote destination through focused true',async({},info)=>{
+  test.skip(process.platform!=='darwin','Requires macOS headed native minimized-window focus.');
+  await fixture(async(context,options)=>{
+    const member=await context.newPage();await member.goto(origin+'/member');const memberId=await id(options,member);
+    const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
+    const setup=await options.evaluate(async({memberId,sourceId})=>{
+      const sourceWindow=(await chrome.tabs.get(sourceId)).windowId;
+      const remote=(await chrome.windows.create({tabId:memberId,focused:false}))!.id!;
+      const groupId=await chrome.tabs.group({tabIds:[memberId],createProperties:{windowId:remote}});await chrome.tabGroups.update(groupId,{title:'Group A'});
+      await chrome.windows.update(remote,{state:'minimized'});await chrome.tabs.update(sourceId,{active:true});await chrome.windows.update(sourceWindow,{focused:true});return {sourceWindow,remote,groupId};
+    },{memberId,sourceId});
+    await config(options,'Group A');
+    expect(await options.evaluate(id=>chrome.windows.get(id).then(w=>w.state),setup.remote)).toBe('minimized');
+    await source.getByRole('link').click();
+    await expect.poll(()=>options.evaluate(async({remote,sourceId})=>({window:await chrome.windows.get(remote),tab:await chrome.tabs.get(sourceId)}),{remote:setup.remote,sourceId})).toMatchObject({window:{focused:true,state:'normal'},tab:{windowId:setup.remote,active:true,groupId:setup.groupId}});
+    const path=info.outputPath('native-minimized.json');await writeFile(path,JSON.stringify({version:context.browser()!.version(),setup,after:await options.evaluate(async()=>({windows:await chrome.windows.getAll(),tabs:await chrome.tabs.query({})}))},null,2));await info.attach('native-minimized',{path,contentType:'application/json'});
+  },true);
+});
+
+test('native production foreground transfer from lone source closes source and presents destination',async({},info)=>{
+  test.skip(process.platform!=='darwin','Requires macOS headed native window disappearance.');
+  await fixture(async(context,options)=>{
+    const member=await context.newPage();await member.goto(origin+'/member');const memberId=await id(options,member);
+    const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
+    const setup=await options.evaluate(async({memberId,sourceId})=>{
+      const destination=(await chrome.tabs.get(memberId)).windowId;
+      const groupId=await chrome.tabs.group({tabIds:[memberId],createProperties:{windowId:destination}});await chrome.tabGroups.update(groupId,{title:'Group A',collapsed:true});
+      const sourceWindow=(await chrome.windows.create({tabId:sourceId,focused:true}))!.id!;
+      await chrome.tabs.update(sourceId,{active:true});return {sourceWindow,destination,groupId};
+    },{memberId,sourceId});
+    await config(options,'Group A');await source.getByRole('link').click();
+    await expect.poll(()=>options.evaluate(async({sourceId,sourceWindow,destination})=>({sourcePresent:(await chrome.windows.getAll()).some(w=>w.id===sourceWindow),winner:await chrome.tabs.get(sourceId),destination:await chrome.windows.get(destination)}),{sourceId,...setup}))
+      .toMatchObject({sourcePresent:false,winner:{windowId:setup.destination,groupId:setup.groupId,active:true},destination:{focused:true}});
+    const path=info.outputPath('native-lone-source.json');await writeFile(path,JSON.stringify({version:context.browser()!.version(),setup,after:await options.evaluate(async()=>({windows:await chrome.windows.getAll(),tabs:await chrome.tabs.query({})}))},null,2));await info.attach('native-lone-source',{path,contentType:'application/json'});
+  },true);
+});

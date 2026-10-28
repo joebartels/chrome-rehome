@@ -7,7 +7,7 @@ import { createConfigRepository } from '../../src/config/repository';
 import { createNavigationTracker } from '../../src/background/navigation';
 import { createOperationQueue } from '../../src/background/operation-queue';
 import { createDiagnostics } from '../../src/diagnostics/diagnostics';
-import { replacementFixture, deferred } from '../fixtures/replacement';
+import { foregroundFixture, replacementFixture, deferred } from '../fixtures/replacement';
 const prepared:ReplacementJournal={version:1,operationId:'old',participants:[{tabId:1,incognito:false,documentId:'one'},{tabId:2,incognito:false,documentId:'anchor'}],completedPhase:'prepared',sequence:0,pending:null,removedTabIds:[],terminal:null};
 const input={tabId:1,timeStamp:1,frameId:0,url:'https://example.com/',documentId:'one',documentLifecycle:'active',transitionType:'link',transitionQualifiers:[],kind:'committed'} as const;
 const config={schemaVersion:4,enabled:true,groupingRules:[],duplicateRules:[]};
@@ -20,7 +20,7 @@ describe('read-only restart admission',()=>{
     const f=replacementFixture();const raw={...prepared,completedPhase:kind==='remove'?'placed':'prepared',sequence:1,pending:{sequence:1,kind,tabId:kind==='remove'?2:1}};f.seed(raw);
     for(const absent of [false,true]){if(absent)f.change(s=>({...s,tabs:[]}));const journal=createReplacementJournal({storage:f.storage,createOperationId:()=> 'new'});const recovery=createRecovery({journal,port:f.port});await recovery.initialize();expect(recovery.isReady()).toBe(false);expect(f.stored).toEqual(raw);expect(f.calls).toEqual([]);}
   });
-  it.each([null,{}, {...prepared,version:2}, {...prepared,pending:{sequence:0,kind:'remove',tabId:1}}])('bad session %j stays intact',async raw=>{const f=replacementFixture();f.seed(raw);const recovery=createRecovery({journal:f.journal,port:f.port});await recovery.initialize();expect(recovery.isReady()).toBe(false);expect(f.stored).toEqual(raw);expect(f.calls).toEqual([]);});
+  it.each([null,{}, {...prepared,version:99}, {...prepared,pending:{sequence:0,kind:'remove',tabId:1}}])('bad session %j stays intact',async raw=>{const f=replacementFixture();f.seed(raw);const recovery=createRecovery({journal:f.journal,port:f.port});await recovery.initialize();expect(recovery.isReady()).toBe(false);expect(f.stored).toEqual(raw);expect(f.calls).toEqual([]);});
   it.each(['read','snapshot','clear'])('%s failure blocks without repair',async method=>{const f=replacementFixture();f.seed(prepared);const failure=Error('private');if(method==='read')f.storage.read=async()=>{throw failure;};else if(method==='clear')f.storage.clear=async()=>{throw failure;};else f.port.read=async()=>{throw failure;};const recovery=createRecovery({journal:f.journal,port:f.port});await recovery.initialize();expect(recovery.isReady()).toBe(false);expect(f.stored).toEqual(prepared);expect(f.calls).toEqual([]);});
   it.each([config,{...config,enabled:false},{}, {...config,schemaVersion:99}])('configuration and recovery initialize independently before admission: %j',async raw=>{
     const f=replacementFixture();const configGate=deferred<unknown>();const journalGate=deferred<unknown>();let configStarted=false;let journalStarted=false;const journalEntered=deferred<void>();
@@ -43,4 +43,17 @@ it('fresh worker queue tracker and coordinator never admit work after a late dis
   const coordinator=createCoordinator({recovery,tracker,config:repository,queue:createOperationQueue(),diagnostics:createDiagnostics(),consume});
   await coordinator.handle(input);expect(consume).not.toHaveBeenCalled();release.resolve();await Promise.resolve();await Promise.resolve();coordinator.forget(2);coordinator.invalidate(1);await coordinator.handle({...input,timeStamp:2});
   raw={...config,enabled:false};changed();await repository.load();raw=config;changed();await repository.load();await coordinator.handle({...input,timeStamp:3});expect(consume).not.toHaveBeenCalled();expect(f.stored).toEqual(durable);expect(f.removed).toEqual([2]);expect(recovery.isReady()).toBe(false);
+});
+
+it.each(['activate','focus'] as const)('version 2 %s pending quarantines a late old-worker effect, settled receipt is read-only',async kind=>{
+  const f=foregroundFixture();const entered=deferred<void>();const release=deferred<void>();const discarded=deferred<void>();
+  const method=kind==='activate'?'activateTab':'focusWindow';const native=f.port[method];
+  f.port[method]=async id=>{entered.resolve();await release.promise;await native(id);await discarded.promise;};
+  void createReplacementExecutor({port:f.port,journal:f.journal}).execute(f.plan,f.guard);await entered.promise;
+  const durable=structuredClone(f.stored);expect(durable).toMatchObject({version:2,pending:{kind,tabId:1}});
+  const fresh=createReplacementJournal({storage:f.storage,createOperationId:()=> 'fresh'});const recovery=createRecovery({journal:fresh,port:f.port});
+  await recovery.initialize();expect(recovery.isReady()).toBe(false);
+  release.resolve();await Promise.resolve();await Promise.resolve();await recovery.initialize();expect(recovery.isReady()).toBe(false);expect(f.stored).toEqual(durable);expect(f.removed).toEqual([]);
+  const settled=replacementFixture();settled.seed({...prepared,version:2,sequence:1,completedPhase:kind});
+  const reconciled=createRecovery({journal:settled.journal,port:settled.port});await reconciled.initialize();expect(reconciled.isReady()).toBe(true);expect(settled.calls).toEqual([]);expect(settled.stored).toBeUndefined();
 });

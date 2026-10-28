@@ -1,8 +1,9 @@
+import type { PresentationIntent } from './presentation';
 import { selectCandidates, type CandidateNavigation, type CandidateTab, type DuplicateIdentity, type NavigationView, type PlacementSelection } from './candidates';
 import { planGroupDestination, type DestinationGroup } from './group-destination';
 
 export type PlacementGroup = DestinationGroup & Readonly<{ shared?: boolean }>;
-export type PlacementSnapshot = Readonly<{ tabs: readonly CandidateTab[]; groups: readonly PlacementGroup[] }>;
+export type PlacementSnapshot = Readonly<{ tabs: readonly (CandidateTab & Readonly<{active?: boolean}>)[]; groups: readonly PlacementGroup[] }>;
 export type PlacementDocument = Readonly<{
   tabId: number; documentId: string; url: string; documentLifecycle: string; frameType: string; parentFrameId: number; errorOccurred: boolean;
 }>;
@@ -14,7 +15,7 @@ export type PlacementDestination =
   | Readonly<{ kind: 'new'; windowId: number; title: string }>;
 export type ReplacementPlan = Readonly<{
   kind: 'place'; epoch: symbol; revision: number; configRevision: number; winner: Participant; duplicates: readonly Participant[];
-  anchorTabId?: number; destination: PlacementDestination; baseline: PlacementSnapshot;
+  presentation: PresentationIntent; anchorTabId?: number; destination: PlacementDestination; baseline: PlacementSnapshot;
 }>;
 export type ReplacementDecision = ReplacementPlan | Readonly<{ kind: 'skip'; reason: 'invalid-input' | 'state-changed' | 'unavailable-document' | 'shared-group' }>;
 
@@ -53,7 +54,7 @@ function sameTab(a: CandidateTab, b: CandidateTab): boolean {
 }
 export function planReplacement(input: Readonly<{
   selection: PlacementSelection; view: NavigationView; snapshot: PlacementSnapshot; documents: readonly PlacementDocument[];
-  identity: DuplicateIdentity; configRevision: number; groupTitle?: string;
+  identity: DuplicateIdentity; configRevision: number; groupTitle?: string; presentation?: PresentationIntent;
 }>): ReplacementDecision {
   const skip = (reason: Extract<ReplacementDecision,{kind:'skip'}>['reason']): ReplacementDecision => Object.freeze({kind:'skip',reason});
   const {selection,view,snapshot,identity,documents,configRevision,groupTitle} = input;
@@ -87,7 +88,7 @@ export function planReplacement(input: Readonly<{
   const winner = participant(checked.winner,true);
   const duplicates = checked.duplicates.map(tab => participant(tab,tab.id === anchor?.id));
   if (!winner || duplicates.some(value => value === undefined)) return skip('unavailable-document');
-  return Object.freeze({kind:'place',epoch:view.epoch,revision:view.revision,configRevision,winner,
+  return Object.freeze({kind:'place',presentation:input.presentation ?? Object.freeze({kind:'preserve'}),epoch:view.epoch,revision:view.revision,configRevision,winner,
     duplicates:Object.freeze(duplicates as Participant[]),...(anchor?{anchorTabId:anchor.id}:{}),destination,
     baseline:Object.freeze({tabs:Object.freeze(snapshot.tabs.map(tab=>Object.freeze({...tab}))),groups:Object.freeze(snapshot.groups.map(group=>Object.freeze({...group})))})});
 }

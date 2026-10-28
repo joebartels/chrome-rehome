@@ -12,7 +12,7 @@ import { createCoordinator } from '../../src/background/coordinator';
 import { createPlacementConsumer } from '../../src/background/placement';
 import { registerEvents } from '../../src/background/register-events';
 
-type Control = { at: string; token: string; release?: boolean; fault?: 'remove-reject' | 'settled-write' };
+type Control = { at: string; token: string; release?: boolean; presentation?: boolean; fault?: 'remove-reject' | 'settled-write' };
 const controlKey = 'chromeReHomeFixtureControl';
 const reachedKey = 'chromeReHomeFixtureReached';
 const doneKey = 'chromeReHomeFixtureDone';
@@ -40,9 +40,20 @@ async function hold(label: string): Promise<void> {
     });
   });
 }
+const observations: unknown[] = [];
+Object.defineProperty(globalThis, '__presentationObservations', {value:observations});
+function record(value: unknown) { observations.push(value); if(observations.length > 1000) observations.shift(); }
 const native = createPlacementAdapter(chrome);
 const port = {
   ...native,
+  // Legacy structural sequence fixtures deliberately use unknown attention. New
+  // headed presentation fixtures explicitly opt into the production native reader.
+  async readPresentation() {
+    if (!(await control())?.presentation) return;
+    const state = await native.readPresentation(); record({attention:state ?? null}); return state;
+  },
+  async activateTab(id: number) { await native.activateTab(id); await hold('presentation:native-fulfilled:activate'); },
+  async focusWindow(id: number) { await native.focusWindow(id); await hold('presentation:native-fulfilled:focus'); },
   async read() { const snapshot = await native.read(); if (placed) await hold('closure:snapshot'); return snapshot; },
   async readDocument(id: number) { const document = await native.readDocument(id); if (placed) await hold('closure:document'); return document; },
   async removeTab(id: number) {
@@ -62,6 +73,7 @@ const storage = {
     const settled = previous?.pending && !value.pending;
     if (config?.fault === 'settled-write' && settled) throw new Error('Simulated storage rejection');
     await nativeStorage.write(value);
+    record({journal:value});
     let label: string;
     if (value.pending) label = `pending:${value.pending.kind}:${value.sequence}`;
     else if (settled) label = `settled:${previous!.pending!.kind}:${value.sequence}`;

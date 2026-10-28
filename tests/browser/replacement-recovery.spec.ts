@@ -37,7 +37,7 @@ async function evidence(info: TestInfo, name: string, value: unknown) {
   await info.attach(name, { path, contentType: 'application/json' });
 }
 
-async function trial(fixture: boolean, run: (f: Trial) => Promise<void>) {
+async function trial(fixture: boolean, run: (f: Trial) => Promise<void>, headed = false) {
   const root = await mkdtemp(join(tmpdir(), 'chromerehome-recovery-'));
   let context: BrowserContext | undefined;
   try {
@@ -55,7 +55,7 @@ async function trial(fixture: boolean, run: (f: Trial) => Promise<void>) {
     }
     context = await chromium.launchPersistentContext(join(root, 'profile'), {
       channel: 'chromium',
-      headless: true,
+      headless: !headed,
       args: [`--disable-extensions-except=${extension}`, `--load-extension=${extension}`]
     });
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
@@ -106,22 +106,22 @@ async function seed(options: Page, winnerId: number, oldId: number, kind: string
     const older = await chrome.tabs.get(oldId);
     const document = await chrome.webNavigation.getFrame({ tabId: winnerId, frameId: 0 });
     const oldDocument = await chrome.webNavigation.getFrame({ tabId: oldId, frameId: 0 });
-    const pendingKinds = ['ungroup', 'move', 'group', 'title', 'remove'];
+    const pendingKinds = ['ungroup', 'move', 'group', 'title', 'remove', 'activate', 'focus'];
     const raw = {
-      version: 1,
+      version: ['activate','focus','settled-activate','settled-focus'].includes(kind) ? 2 : 1,
       operationId: crypto.randomUUID(),
       participants: [
         { tabId: winnerId, incognito: winner.incognito, documentId: document!.documentId },
         { tabId: oldId, incognito: older.incognito, documentId: oldDocument!.documentId }
       ],
-      completedPhase: kind === 'remove' || kind === 'placed' ? 'placed' : kind === 'removed' ? 'removed' : 'prepared',
-      sequence: pendingKinds.includes(kind) || kind === 'removed' ? 1 : 0,
+      completedPhase: kind.startsWith('settled-') ? kind.slice(8) : kind === 'remove' || kind === 'placed' ? 'placed' : kind === 'removed' ? 'removed' : 'prepared',
+      sequence: pendingKinds.includes(kind) || kind === 'removed' || kind.startsWith('settled-') ? 1 : 0,
       pending: pendingKinds.includes(kind) ? { sequence: 1, kind, tabId: kind === 'remove' ? oldId : winnerId } : null,
       removedTabIds: kind === 'removed' ? [oldId] : [],
       terminal: null
     };
     if (kind === 'future')
-      raw.version = 2;
+      raw.version = 99;
     if (kind === 'malformed')
       Object.assign(raw, { secret: 'unexpected' });
     await chrome.storage.session.set({ [key]: raw });
@@ -171,7 +171,7 @@ async function stop(f: Trial) {
   };
 }
 
-for (const kind of ['ungroup', 'move', 'group', 'title', 'remove', 'future', 'malformed']) {
+for (const kind of ['ungroup', 'move', 'group', 'title', 'remove', 'activate', 'focus', 'future', 'malformed']) {
   test(`seeded production recovery quarantines ${kind} byte-for-byte across real worker restart`, async ({}, info) => trial(false, async (f) => {
     const s = await scenario(f);
     await config(f.options);
@@ -209,7 +209,7 @@ for (const kind of ['ungroup', 'move', 'group', 'title', 'remove', 'future', 'ma
   }));
 }
 
-for (const phase of ['placed', 'removed']) {
+for (const phase of ['placed', 'removed', 'settled-activate', 'settled-focus']) {
   test(`seeded production settled ${phase} abandons without replay then fresh closure works`, async ({}, info) => trial(false, async (f) => {
     const s = await scenario(f);
     await config(f.options);
@@ -231,12 +231,12 @@ for (const phase of ['placed', 'removed']) {
   }));
 }
 
-async function arm(options: Page, at: string, fault?: string) {
+async function arm(options: Page, at: string, fault?: string, presentation = false) {
   const token = crypto.randomUUID();
-  await options.evaluate(async ({ controlKey, at, token, fault }) => {
+  await options.evaluate(async ({ controlKey, at, token, fault, presentation }) => {
     await chrome.storage.session.remove(['chromeReHomeFixtureReached', 'chromeReHomeFixtureDone']);
-    await chrome.storage.session.set({ [controlKey]: { at, token, ...(fault ? { fault } : {}) } });
-  }, { controlKey, at, token, fault });
+    await chrome.storage.session.set({ [controlKey]: { at, token, presentation, ...(fault ? { fault } : {}) } });
+  }, { controlKey, at, token, fault, presentation });
   return token;
 }
 
@@ -466,4 +466,40 @@ for (const phase of ['pending:move:4', 'settled:move:4', 'verified:move:4']) {
       nativeOutstanding: false
     });
   }));
+}
+
+for(const phase of ['pending:activate:4','settled:activate:4','verified:activate:4','presentation:native-fulfilled:activate',
+  'pending:focus:5','settled:focus:5','verified:focus:5','presentation:native-fulfilled:focus']){
+  test(`native foreground phase worker termination after ${phase} never replays presentation or removal`,async({},info)=>{
+    test.skip(process.platform!=='darwin','Requires macOS headed native focus.');
+    await trial(true,async f=>{
+      const s=await phaseScenario(f);
+      const setup=await f.options.evaluate(async({winnerId,origin})=>{
+        const source=(await chrome.tabs.get(winnerId)).windowId;
+        const spare=await chrome.tabs.create({windowId:source,url:origin+'/source-spare',active:false});
+        await chrome.tabs.update(winnerId,{active:true});await chrome.windows.update(source,{focused:true});return {source,spare:spare.id!};
+      },{winnerId:s.winnerId,origin});
+      await expect.poll(async()=>(await tabs(f.options)).find(t=>t.id===setup.spare)?.status).toBe('complete');
+      const token=await arm(f.options,phase,undefined,true);
+      const beforeTrigger = await f.options.evaluate(async()=>({windows:await chrome.windows.getAll({populate:true,windowTypes:['normal']}),journal:(await chrome.storage.session.get('chromeReHomeReplacementJournal')).chromeReHomeReplacementJournal}));
+      await evidence(info,'foreground-preconditions',{setup,winnerId:s.winnerId,state:beforeTrigger});
+      expect(beforeTrigger.windows.filter(w=>w.focused).map(w=>w.id)).toEqual([setup.source]);
+      expect(beforeTrigger.windows.find(w=>w.id===setup.source)?.tabs?.filter(t=>t.active).map(t=>t.id)).toEqual([s.winnerId]);
+      await s.winner.getByRole('link').click();
+      try { await reached(f.options,token); }
+      catch (error) {
+        await evidence(info,'foreground-gate-failure',{phase,observations:await f.worker.evaluate(()=>Reflect.get(globalThis,'__presentationObservations')),state:await f.options.evaluate(async()=>({windows:await chrome.windows.getAll({populate:true,windowTypes:['normal']}),storage:await chrome.storage.session.get(null)}))});
+        throw error;
+      }
+      const raw=await journal(f.options) as ReplacementJournal;expect(raw.version).toBe(2);
+      const before=await tabs(f.options);expect(before.filter(t=>s.duplicateIds.includes(t.id!))).toHaveLength(2);
+      const stopped=await stop(f);await f.options.evaluate(key=>chrome.storage.session.remove(key),controlKey);
+      const wake=await f.context.newPage();await wake.goto(origin+'/wake?to=/unique-wake');await wake.getByRole('link').click();await stopped.restarted(info);
+      if(raw.pending){await new Promise(done=>setTimeout(done,250));expect(await journal(f.options)).toEqual(raw);}
+      else await expect.poll(()=>journal(f.options)).toBeUndefined();
+      expect((await tabs(f.options)).filter(t=>s.duplicateIds.includes(t.id!))).toHaveLength(2);
+      await evidence(info,'foreground-phase',{phase,record:raw,version:f.context.browser()!.version(),before,after:await tabs(f.options),nativeOutstanding:false,
+        gateMeaning:phase.startsWith('presentation:')?'native already fulfilled, wrapper held before settlement':'durable write gate; not proof of interruption inside Chrome API'});
+    },true);
+  });
 }

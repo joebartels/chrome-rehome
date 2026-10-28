@@ -1,3 +1,4 @@
+import { samePresentation } from './presentation';
 import { createPlacementExecutor, type PlacementGuard, type PlacementPort, type PlacementResult } from './placement';
 import type { createReplacementJournal, JournalParticipant } from './journal';
 import { coherentSnapshot, validDocument, type PlacementDocument, type PlacementSnapshot, type ReplacementPlan } from '../planning/replacement';
@@ -138,6 +139,11 @@ export function createReplacementExecutor({ port, journal }: {
         phase = 'journal';
         await journal.verified('placed');
         check();
+        if (placement.presentation) {
+          const attention = await port.readPresentation();
+          check();
+          if (!samePresentation(attention, placement.presentation)) throw invalid;
+        }
         phase = 'closure';
         if (closureEligible) {
           for (const participant of plan.duplicates) {

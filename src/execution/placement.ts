@@ -1,3 +1,5 @@
+import { createPresentationReceipt } from './presentation';
+import type { PresentationState } from '../planning/presentation';
 import type { GroupDestination } from '../planning/group-destination';
 import { coherentSnapshot, validDocument } from '../planning/replacement';
 import type { CandidateTab } from '../planning/candidates';
@@ -6,13 +8,16 @@ import type { Participant, PlacementDocument, PlacementSnapshot, ReplacementPlan
 export type PlacementGuard = Readonly<{ isCurrent(): boolean }>;
 export type PlacementPort = {
   read(): Promise<PlacementSnapshot>;
+  readPresentation(): Promise<PresentationState | undefined>;
+  activateTab(tabId: number): Promise<void>;
+  focusWindow(windowId: number): Promise<void>;
   readDocument(tabId: number): Promise<PlacementDocument | undefined>;
   moveTab(tabId: number, windowId: number, index: number): Promise<void>;
   ungroupTab(tabId: number): Promise<void>;
   groupTab(tabId: number, destination: GroupDestination): Promise<number>;
   setTitle(groupId: number, title: string): Promise<void>;
 };
-export type MutationPhase = 'ungroup' | 'move' | 'group' | 'title';
+export type MutationPhase = 'ungroup' | 'move' | 'group' | 'title' | 'activate' | 'focus';
 export type PlacementCheckpoints = {
   beforeMutation(phase: MutationPhase): Promise<void>;
   afterSettlement(phase: MutationPhase): Promise<void>;
@@ -25,7 +30,7 @@ export type PlacementEffect = Readonly<{
   groupId?: number
 }>;
 export type PlacementResult =
-  | Readonly<{ kind: 'placed' | 'unchanged'; windowId: number; groupId: number; index: number; snapshot: PlacementSnapshot }>
+  | Readonly<{ kind: 'placed' | 'unchanged'; windowId: number; groupId: number; index: number; snapshot: PlacementSnapshot; presentation?: PresentationState }>
   | Readonly<{ kind: 'skipped'; reason: 'state-changed' }>
   | Readonly<{ kind: 'failed'; phase: PlacementPhase; cause: unknown; effects: readonly PlacementEffect[] }>;
 
@@ -35,6 +40,7 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
     async execute(plan: ReplacementPlan, guard: PlacementGuard): Promise<PlacementResult> {
       const effects: PlacementEffect[] = [];
       const invalid = new Error('Placement state changed.');
+      const attention = createPresentationReceipt(plan, port, invalid);
       let phase: PlacementPhase = 'read';
       let expected = { ...plan.winner.tab };
       let newGroupId: number | undefined;
@@ -61,6 +67,11 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
 
       function validate(snapshot: PlacementSnapshot, acceptIndex = false): CandidateTab {
         if (!coherentSnapshot(snapshot)) throw invalid;
+        // A globally planned creation remains authorized only while no other
+        // matching group has appeared, including outside the structural windows.
+        if (destination.kind === 'new' && snapshot.groups.some(group=>group.id !== newGroupId
+          && group.title === destination.title && snapshot.tabs.some(tab=>tab.groupId === group.id
+            && tab.incognito === plan.winner.tab.incognito))) throw invalid;
         const winner = snapshot.tabs.find(tab => tab.id === expected.id);
         if (!winner || !sameTab(winner, expected) || winner.pinned || 'pendingUrl' in winner
           || !acceptIndex && winner.index !== expected.index) throw invalid;
@@ -117,7 +128,11 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
       async function read(acceptIndex = false): Promise<PlacementSnapshot> {
         check();
         phase = 'read';
+        await attention.check();
+        check();
         const snapshot = await port.read();
+        check();
+        await attention.check();
         check();
         const winner = validate(snapshot, acceptIndex);
         expected = { ...winner };
@@ -130,6 +145,8 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
           check();
           phase = 'document';
           const document = await port.readDocument(participant.tab.id);
+          check();
+          await attention.check();
           check();
           const tab = before.tabs.find(tab => tab.id === participant.tab.id);
           if (!tab || !validDocument(document, tab, participant.navigation)
@@ -149,6 +166,7 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
         check();
         phase = mutationPhase;
         effects.push(Object.freeze({ phase: mutationPhase, outcome: 'uncertain' }));
+        const previousWindowId = expected.windowId;
         let value: T;
         try {
           value = await operation();
@@ -162,8 +180,12 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
           outcome: 'acknowledged',
           ...(mutationPhase === 'group' ? { groupId: value as number } : {})
         });
-        await checkpoints?.afterSettlement(mutationPhase);
-        accept(value);
+        // Capture only the native transition before another durable-storage await.
+        // Even an invalid native result must discharge its settled pending marker.
+        try {
+          accept(value);
+          await attention.settled(mutationPhase, previousWindowId);
+        } finally { await checkpoints?.afterSettlement(mutationPhase); }
         check();
         const snapshot = await observe(true);
         effects[effects.length - 1] = Object.freeze({ ...effects[effects.length - 1]!, outcome: 'verified' });
@@ -246,15 +268,22 @@ export function createPlacementExecutor({ port, checkpoints }: { port: Placement
             || expected.groupId !== (destination.kind === 'new' ? newGroupId : finalGroup)
             || expected.index !== finalIndex(snapshot)) throw invalid;
         }
+        if (plan.presentation.kind === 'foreground') {
+          if (!attention.current()!.activeTabs.some(entry=>entry.windowId === windowId && entry.tabId === expected.id))
+            snapshot = await mutate('activate', () => port.activateTab(expected.id), () => {});
+          if (attention.current()!.focusedWindowId !== windowId)
+            snapshot = await mutate('focus', () => port.focusWindow(windowId), () => {});
+        }
         snapshot = await observe();
         phase = 'verify';
         check();
-        if (destination.kind !== 'unchanged' && expected.index !== finalIndex(snapshot)) throw invalid;
+        if (!attention.satisfied() || destination.kind !== 'unchanged' && expected.index !== finalIndex(snapshot)) throw invalid;
         return Object.freeze({
           kind: effects.length ? 'placed' : 'unchanged',
           windowId: expected.windowId,
           groupId: expected.groupId,
           index: expected.index,
+          ...(attention.current() ? {presentation:attention.current()!} : {}),
           snapshot: Object.freeze({
             tabs: Object.freeze(snapshot.tabs.map(tab => Object.freeze({ ...tab }))),
             groups: Object.freeze(snapshot.groups.map(group => Object.freeze({ ...group })))

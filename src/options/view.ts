@@ -94,7 +94,7 @@ function createEditorView(root: HTMLElement, controller: ReturnType<typeof creat
     });
   }
   for (const [list, heading, description, addTitle] of [
-    ['groupingRules', 'Grouping rules', 'Grouping rules apply when no duplicate tab is already open. An existing duplicate keeps its group and window. Otherwise, the first enabled matching rule chooses the group title. Use an HTTP(S) URL or *:// for either scheme, with * wildcards in the hostname or path. Other pattern syntax is literal. Query and fragment are ignored when matching; do not include ? or # in a pattern. Up to 100 rules.', 'Add grouping rule'],
+    ['groupingRules', 'Grouping rules', 'Grouping rules apply when no duplicate tab is already open. An existing duplicate keeps its group and window. Otherwise, the first enabled matching rule chooses the group title and reuses an existing group across windows. Foreground opens follow the tab to its destination; background opens stay in the background. Use an HTTP(S) URL or *:// for either scheme, with * wildcards in the hostname or path. Other pattern syntax is literal. Query and fragment are ignored when matching; do not include ? or # in a pattern. Up to 100 rules.', 'Add grouping rule'],
     ['duplicateRules', 'Duplicate policies', 'Optional: decide when slightly different URLs count as the same page. Leave empty for strict comparison. For example, origin https://example.com with ignored name utm_source treats links differing only by that tracking value as duplicates. Each origin has one policy; order has no precedence. Disabling a policy restores strict comparison. Up to 100 rules.', 'Add duplicate rule'],
   ] as const) {
     const section = document.createElement('section'); form.append(section);
@@ -114,7 +114,7 @@ function createEditorView(root: HTMLElement, controller: ReturnType<typeof creat
   }
   const preview = document.createElement('section'); form.append(preview);
   text('h2', 'Matching preview', preview);
-  text('p', 'Paste a URL to test which grouping rule matches. Add a second URL to check whether both count as duplicates. Preview uses your draft without changing tabs or saved settings. During real navigation, an existing duplicate keeps its group and window ahead of the rule shown here. Duplicate comparison assumes the same normal browsing context.', preview);
+  text('p', 'Paste a URL to test which grouping rule matches. Add a second URL to check whether both count as duplicates. Preview uses your draft without changing tabs or saved settings. During real navigation, an existing duplicate keeps its group and window ahead of the rule shown here. Without a duplicate, a matching named group can be reused across windows. Foreground opens follow the destination; background opens preserve your current selection. Duplicate comparison assumes the same normal browsing context.', preview);
   function previewInput(title: string, id: string) {
     const label = document.createElement('label'); label.className = 'field'; label.htmlFor = id;
     text('span', title, label);

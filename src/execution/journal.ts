@@ -1,10 +1,10 @@
-export type JournalMutation = 'ungroup' | 'move' | 'group' | 'title' | 'remove';
+export type JournalMutation = 'ungroup' | 'move' | 'group' | 'title' | 'activate' | 'focus' | 'remove';
 export type JournalParticipant = Readonly<{ tabId: number; incognito: boolean; documentId?: string }>;
 export type ReplacementJournal = Readonly<{
-  version: 1;
+  version: 1 | 2;
   operationId: string;
   participants: readonly JournalParticipant[];
-  completedPhase: 'prepared' | 'ungroup' | 'move' | 'group' | 'title' | 'placed' | 'removed' | 'completed';
+  completedPhase: 'prepared' | 'ungroup' | 'move' | 'group' | 'title' | 'activate' | 'focus' | 'placed' | 'removed' | 'completed';
   sequence: number;
   pending: null | Readonly<{ sequence: number; kind: JournalMutation; tabId: number }>;
   removedTabIds: readonly number[];
@@ -16,8 +16,8 @@ export type JournalStorage = {
   write(value: ReplacementJournal): Promise<void>;
   clear(): Promise<void>;
 };
-const mutations: readonly string[] = ['ungroup', 'move', 'group', 'title', 'remove'];
-const phases: readonly string[] = ['prepared', 'ungroup', 'move', 'group', 'title', 'placed', 'removed', 'completed'];
+const legacyMutations: readonly string[] = ['ungroup', 'move', 'group', 'title', 'remove'];
+const legacyPhases: readonly string[] = ['prepared', 'ungroup', 'move', 'group', 'title', 'placed', 'removed', 'completed'];
 function object(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
     && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
@@ -40,11 +40,13 @@ export function parseJournal(raw: unknown): JournalRead {
   if (raw === undefined) return Object.freeze({ kind: 'empty' });
   const invalid = Object.freeze({ kind: 'invalid' } as const);
   try {
+    const mutations = object(raw) && raw.version === 2 ? [...legacyMutations, 'activate', 'focus'] : legacyMutations;
+    const phases = object(raw) && raw.version === 2 ? [...legacyPhases, 'activate', 'focus'] : legacyPhases;
     const serialized = JSON.stringify(raw);
     if (serialized === undefined || serialized.length > 65536) return invalid;
     if (!object(raw) || !keys(raw, ['version', 'operationId', 'participants', 'completedPhase', 'sequence', 'pending', 'removedTabIds', 'terminal'])
-      || raw.version !== 1 || !string(raw.operationId) || !dense(raw.participants, 100) || !raw.participants.length
-      || !dense(raw.removedTabIds, 99) || !id(raw.sequence) || raw.sequence > 105
+      || (raw.version !== 1 && raw.version !== 2) || !string(raw.operationId) || !dense(raw.participants, 100) || !raw.participants.length
+      || !dense(raw.removedTabIds, 99) || !id(raw.sequence) || raw.sequence > (raw.version === 1 ? 105 : 107)
       || typeof raw.completedPhase !== 'string' || !phases.includes(raw.completedPhase)
       || raw.terminal !== null && raw.terminal !== 'completed' && raw.terminal !== 'abandoned') return invalid;
     const participants: JournalParticipant[] = [];
@@ -81,7 +83,7 @@ export function parseJournal(raw: unknown): JournalRead {
       } else if (entry.tabId !== participants[0]!.tabId || ['placed', 'removed', 'completed'].includes(raw.completedPhase)) return invalid;
       pending = Object.freeze({ sequence: entry.sequence, kind: entry.kind as JournalMutation, tabId: entry.tabId });
     }
-    return Object.freeze({ kind: 'valid', value: Object.freeze({ version: 1, operationId: raw.operationId,
+    return Object.freeze({ kind: 'valid', value: Object.freeze({ version: raw.version, operationId: raw.operationId,
       participants: Object.freeze(participants), completedPhase: raw.completedPhase as ReplacementJournal['completedPhase'],
       sequence: raw.sequence, pending, removedTabIds: Object.freeze(removed), terminal: raw.terminal as ReplacementJournal['terminal'] }) });
   } catch { return invalid; }
@@ -130,7 +132,7 @@ export function createReplacementJournal({ storage, createOperationId }: { stora
           blocked = true;
           throw new Error('Replacement journal is occupied.');
         }
-        await write({ version: 1, operationId: createOperationId(), participants, completedPhase: 'prepared', sequence: 0,
+        await write({ version: 2, operationId: createOperationId(), participants, completedPhase: 'prepared', sequence: 0,
           pending: null, removedTabIds: [], terminal: null });
       });
     },
