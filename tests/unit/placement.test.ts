@@ -116,3 +116,31 @@ it('checkpoint awaits pending then repeats full preflight before every native ca
 it('afterSettlement runs on native rejection and cannot replace original rejection',async()=>{
   const f=setup();const cause={native:true};f.port.moveTab=async()=>{throw cause;};let settled=false;const checkpoints={beforeMutation:async()=>{},afterSettlement:async()=>{settled=true;throw Error('bookkeeping');},afterVerification:async()=>{throw Error('unexpected');}};const result=await createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard);expect(settled).toBe(true);expect(result.kind).toBe('failed');if(result.kind==='failed')expect(result.cause).toBe(cause);
 });
+
+
+it.each(['ungrouped','lone-group','group-with-member'] as const)('rule-only remote reuse preserves other member order from %s source',async source=>{
+  const grouped=source!=='ungrouped';
+  const f=setup([tab(1,0,{groupId:grouped?7:-1}),...(source==='group-with-member'?[tab(5,1,{groupId:7,url:'https://source.test/'})]:[]),
+    tab(3,0,{windowId:20,groupId:8,url:'https://first.test/'}),tab(4,1,{windowId:20,groupId:8,url:'https://second.test/'}),tab(6,2,{windowId:20,url:'https://after.test/'})],
+    [...(grouped?[{id:7,windowId:10,title:'Source'}]:[]),{id:8,windowId:20,title:'Work'}],'Work');
+  expect(await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard)).toMatchObject({kind:'placed',windowId:20,groupId:8,index:2});
+  expect(f.calls).toEqual([...(grouped?['ungroup']:[]),'move:20:2','group']);
+  expect(f.snapshot.tabs.filter(t=>t.windowId===20).sort((a,b)=>a.index-b.index).map(t=>t.id)).toEqual([3,4,1,6]);
+  expect(f.snapshot.groups).toEqual([...(source==='group-with-member'?[{id:7,windowId:10,title:'Source'}]:[]),{id:8,windowId:20,title:'Work'}]);
+});
+it.each(['deleted','renamed','context','shared'] as const)('remote rule destination %s before preflight stops without creation',async change=>{
+  const f=setup([tab(1,0),tab(3,0,{windowId:20,groupId:8,url:'https://member.test/'})],[{id:8,windowId:20,title:'Work'}],'Work');
+  f.change(s=>change==='deleted'?{tabs:s.tabs.filter(t=>t.id!==3),groups:[]}:
+    change==='context'?{...s,tabs:s.tabs.map(t=>t.id===3?{...t,incognito:true}:t)}:
+    {...s,groups:s.groups.map(g=>({...g,...(change==='shared'?{shared:true}:{title:'Renamed'})}))});
+  expect(await createPlacementExecutor({port:f.port}).execute(f.plan,f.guard)).toEqual({kind:'skipped',reason:'state-changed'});
+  expect(f.calls).toEqual([]);
+});
+it('remote rule group disappearing during pending move persistence prevents the native move',async()=>{
+  const f=setup([tab(1,0),tab(3,0,{windowId:20,groupId:8,url:'https://member.test/'})],[{id:8,windowId:20,title:'Work'}],'Work');
+  const started=deferred<void>();const release=deferred<void>();
+  const checkpoints={beforeMutation:async()=>{started.resolve();await release.promise;},afterSettlement:async()=>{},afterVerification:async()=>{}};
+  const pending=createPlacementExecutor({port:f.port,checkpoints}).execute(f.plan,f.guard);await started.promise;
+  f.change(s=>({tabs:s.tabs.map(t=>t.id===3?{...t,groupId:-1}:t),groups:[]}));release.resolve();
+  expect(await pending).toEqual({kind:'skipped',reason:'state-changed'});expect(f.calls).toEqual([]);
+});

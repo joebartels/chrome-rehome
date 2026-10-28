@@ -25,7 +25,10 @@ export function isValidGroupRequest(request: GroupRequest): boolean {
     request.title.trim() === request.title && !/\p{Cc}/u.test(request.title);
 }
 
-export function planGroupDestination(request: GroupRequest, snapshot: DestinationSnapshot): GroupPlan {
+export function planGroupDestination(
+  request: GroupRequest, snapshot: DestinationSnapshot,
+  options?: Readonly<{ scope: 'window' | 'all-normal-windows' }>
+): GroupPlan {
   const skip = (reason: GroupPlanSkipReason): GroupPlan => ({ kind: 'skip', reason });
   if (!isValidGroupRequest(request)) return skip('invalid-request');
   const sources = snapshot.tabs.filter(tab => tab.id === request.tabId);
@@ -45,17 +48,19 @@ export function planGroupDestination(request: GroupRequest, snapshot: Destinatio
   }
   const candidates: { group: DestinationGroup; index: number }[] = [];
   for (const group of snapshot.groups) {
-    if (group.windowId !== request.windowId || group.title !== request.title) continue;
+    if (group.title !== request.title || options?.scope !== 'all-normal-windows' && group.windowId !== request.windowId) continue;
     const members = snapshot.tabs.filter(tab => tab.groupId === group.id);
     if (!coherent(group, members)) return skip('inconsistent-snapshot');
     if (members[0]!.incognito !== request.incognito) continue;
     candidates.push({ group, index: Math.min(...members.map(tab => tab.index)) });
   }
   const current = candidates.find(({ group }) => group.id === source.groupId);
-  const chosen = current ?? candidates.sort((a, b) => a.index - b.index || a.group.id - b.group.id)[0];
+  const chosen = current ?? candidates.sort((a, b) =>
+    Number(b.group.windowId === request.windowId) - Number(a.group.windowId === request.windowId) ||
+    a.group.windowId - b.group.windowId || a.index - b.index || a.group.id - b.group.id)[0];
   return {
     kind: 'place', tabId: request.tabId,
-    destination: chosen ? { kind: 'existing', windowId: request.windowId, groupId: chosen.group.id } :
+    destination: chosen ? { kind: 'existing', windowId: chosen.group.windowId, groupId: chosen.group.id } :
       { kind: 'new', windowId: request.windowId, title: request.title },
     placement: current ? 'already-grouped' : 'group',
   };

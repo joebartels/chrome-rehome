@@ -5,6 +5,7 @@ import { createNavigationTracker, type NavigationInput } from '../../src/backgro
 import { createConfigRepository } from '../../src/config/repository';
 import { createOperationQueue } from '../../src/background/operation-queue';
 import { createDiagnostics } from '../../src/diagnostics/diagnostics';
+import type { PlacementSnapshot } from '../../src/planning/replacement';
 import type { ReplacementPort } from '../../src/execution/replacement';
 import { createReplacementJournal } from '../../src/execution/journal';
 const enabled = {
@@ -18,13 +19,13 @@ const input = (tabId = 1, timeStamp = 1): NavigationInput => ({
   documentLifecycle: 'active', transitionType: 'link', transitionQualifiers: [], kind: 'committed'
 });
 
-function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize(): Promise<void>; isReady(): boolean }) {
+function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize(): Promise<void>; isReady(): boolean }, initial?: PlacementSnapshot) {
   const tracker = createNavigationTracker();
-  let tabs = [
+  let tabs: PlacementSnapshot['tabs'][number][] = [...(initial?.tabs ?? [
     { id: 1, windowId: 10, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' },
     { id: 2, windowId: 20, index: 0, groupId: -1, pinned: false, incognito: false, url: 'https://example.com/' }
-  ];
-  let groups: { id: number; windowId: number; title?: string }[] = [];
+  ])];
+  let groups: PlacementSnapshot['groups'][number][] = [...(initial?.groups ?? [])];
   const frames: number[] = [];
   const mutations: number[] = [];
   const removed: number[] = [];
@@ -59,6 +60,10 @@ function fixture(raw: unknown, matchingFrames = false, recovery?: { initialize()
     ungroupTab: async () => { throw Error('unexpected ungroup'); },
     groupTab: async (tabId, destination) => {
       mutations.push(tabId);
+      if (destination.kind === 'existing') {
+        tabs = tabs.map(tab => tab.id === tabId ? { ...tab, groupId: destination.groupId } : tab);
+        return destination.groupId;
+      }
       const groupId = nextGroup++;
       tabs = tabs.map(tab => tab.id === tabId ? { ...tab, groupId } : tab);
       groups = [...groups, { id: groupId, windowId: destination.windowId, title: '' }];
@@ -154,4 +159,19 @@ it.each(['link', 'start_page'])('%s cannot mutate when disabled, recovery blocke
     expect(f.removed).toEqual([]);
     expect((await f.port.read()).tabs.map(tab => tab.id)).toEqual([1, 2]);
   }
+});
+
+
+it('production consumer routes a grouping-only incoming tab into the remote existing group',async()=>{
+  const f=fixture(enabled,false,undefined,{tabs:[
+    {id:1,windowId:10,index:0,groupId:-1,pinned:false,incognito:false,url:'https://example.com/'},
+    {id:3,windowId:20,index:0,groupId:8,pinned:false,incognito:false,url:'https://first.test/'},
+    {id:4,windowId:20,index:1,groupId:8,pinned:false,incognito:false,url:'https://second.test/'}
+  ],groups:[{id:8,windowId:20,title:'Work'}]});
+  await f.coordinator.handle(input());
+  const result=await f.port.read();
+  expect(result.tabs.filter(t=>t.windowId===20).sort((a,b)=>a.index-b.index).map(t=>({id:t.id,groupId:t.groupId}))).toEqual([{id:3,groupId:8},{id:4,groupId:8},{id:1,groupId:8}]);
+  expect(result.groups).toEqual([{id:8,windowId:20,title:'Work'}]);
+  expect(f.removed).toEqual([]);
+  expect(f.frames.every(id=>id===1)).toBe(true);
 });

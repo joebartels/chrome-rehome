@@ -51,3 +51,44 @@ describe('planGroupDestination', () => {
     expect(snapshot.tabs[0]).toEqual(tab());
   });
 });
+
+
+// Global opt-in must change destination selection without changing legacy scoped callers.
+describe('all-normal-window group destinations', () => {
+  const global = { scope: 'all-normal-windows' } as const;
+  const remote = (groupId: number, windowId = 20) => ({
+    kind: 'place', tabId: 1, destination: { kind: 'existing', windowId, groupId }, placement: 'group'
+  });
+  it('reuses a remote exact-title group and returns its actual window', () => {
+    const snapshot = { tabs: [tab(), tab({ id: 2, windowId: 20, index: 0, groupId: 7 })], groups: [{ id: 7, windowId: 20, title: 'BarTab' }] };
+    expect(planGroupDestination(request, snapshot, global)).toEqual(remote(7));
+    expect(planGroupDestination(request, snapshot)).toEqual(fresh);
+    expect(planGroupDestination(request, snapshot, { scope: 'window' })).toEqual(fresh);
+  });
+  it.each([false, true])('prefers current then local over remote, currently grouped=%s', current => {
+    const snapshot = { tabs: [tab({groupId:current?9:-1}), tab({id:2,groupId:7,index:0}), tab({id:3,windowId:2,index:0,groupId:3})],
+      groups: [...(current?[{id:9,windowId:10,title:'BarTab'}]:[]), {id:7,windowId:10,title:'BarTab'}, {id:3,windowId:2,title:'BarTab'}] };
+    expect(planGroupDestination(request,snapshot,global)).toEqual(existing(current?9:7,current?'already-grouped':'group'));
+  });
+  it.each([
+    [20, 2, 9, 30, 0, 7, 20, 9],
+    [20, 2, 9, 20, 1, 7, 20, 7],
+    [20, 1, 9, 20, 1, 7, 20, 7],
+  ])('orders remote candidates by window, first member index, then group id: %j', (aw,ai,a,bw,bi,b,wantWindow,wantGroup) => {
+    const snapshot = { tabs:[tab(),tab({id:2,windowId:aw,index:ai,groupId:a}),tab({id:3,windowId:bw,index:bi,groupId:b})],
+      groups:[{id:a,windowId:aw,title:'BarTab'},{id:b,windowId:bw,title:'BarTab'}] };
+    expect(planGroupDestination(request,snapshot,global)).toEqual(remote(wantGroup,wantWindow));
+    expect(planGroupDestination(request,{tabs:[...snapshot.tabs].reverse(),groups:[...snapshot.groups].reverse()},global)).toEqual(remote(wantGroup,wantWindow));
+  });
+  it.each([['bartab',false],['BarTab',true],['Bar*',false]])('does not reuse a remote title/context mismatch: %s / %s', (title,incognito) => {
+    expect(planGroupDestination(request,{tabs:[tab(),tab({id:2,windowId:20,groupId:7,incognito})],groups:[{id:7,windowId:20,title}]},global)).toEqual(fresh);
+  });
+  it.each([
+    {tabs:[tab()],groups:[{id:7,windowId:20,title:'BarTab'}]},
+    {tabs:[tab(),tab({id:2,windowId:30,groupId:7})],groups:[{id:7,windowId:20,title:'BarTab'}]},
+    {tabs:[tab(),tab({id:2,windowId:20,groupId:7}),tab({id:3,windowId:20,groupId:7,incognito:true})],groups:[{id:7,windowId:20,title:'BarTab'}]},
+    {tabs:[tab(),tab({id:2,windowId:20,groupId:7})],groups:[{id:7,windowId:20,title:'BarTab'},{id:7,windowId:20,title:'BarTab'}]},
+  ])('fails closed on malformed relevant remote membership: %j', snapshot => {
+    expect(planGroupDestination(request,snapshot,global)).toEqual(skip('inconsistent-snapshot'));
+  });
+});

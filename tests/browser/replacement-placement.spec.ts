@@ -269,3 +269,33 @@ test('production closes three duplicates across two windows and groups including
   expect(await options.evaluate(async({second,emptyWindow})=>({group:(await chrome.tabGroups.query({})).some(g=>g.id===second),window:(await chrome.windows.getAll()).some(w=>w.id===emptyWindow)}),setup)).toEqual({group:false,window:false});
   await winner.goBack();expect(winner.url()).toBe(origin+'/before');
 }));
+
+
+test('production grouping-only reuses remote Group A without a competing source group and retains history',async()=>fixture(async(context,options)=>{
+  const first=await context.newPage();await first.goto(origin+'/remote-first');const firstId=await id(options,first);
+  const second=await context.newPage();await second.goto(origin+'/remote-second');const secondId=await id(options,second);
+  const winner=await context.newPage();await winner.goto(origin+'/before');const winnerId=await id(options,winner);
+  const destination=await options.evaluate(async({firstId,secondId,winnerId})=>{
+    const sourceWindow=(await chrome.tabs.get(winnerId)).windowId;
+    const remote=(await chrome.windows.create({tabId:firstId,focused:false}))!.id!;
+    await chrome.tabs.move(secondId,{windowId:remote,index:-1});
+    const groupId=await chrome.tabs.group({tabIds:[firstId,secondId],createProperties:{windowId:remote}});
+    await chrome.tabGroups.update(groupId,{title:'Group A',color:'purple'});
+    return {windowId:remote,groupId,sourceWindow};
+  },{firstId,secondId,winnerId});
+  expect(destination.windowId).not.toBe(destination.sourceWindow);
+  const original=(await tabs(options)).map(t=>t.id!);
+  const beforeGroups=await options.evaluate(()=>chrome.tabGroups.query({}));
+  expect(beforeGroups.filter(g=>g.title==='Group A'&&g.windowId===destination.sourceWindow)).toEqual([]);
+  await config(options,'Group A');await winner.getByRole('link').click();
+  await expect.poll(async()=>{
+    const t=(await tabs(options)).find(t=>t.id===winnerId)!;
+    return {windowId:t.windowId,groupId:t.groupId};
+  }).toEqual({windowId:destination.windowId,groupId:destination.groupId});
+  await retain(options,original);
+  const after=await tabs(options);
+  expect(after.find(t=>t.id===winnerId)!.url).toBe(origin+'/target');
+  expect(after.filter(t=>t.groupId===destination.groupId).sort((a,b)=>a.index-b.index).map(t=>t.id)).toEqual([firstId,secondId,winnerId]);
+  expect(await options.evaluate(()=>chrome.tabGroups.query({}))).toEqual(beforeGroups);
+  await config(options,undefined,false);await winner.goBack();expect(winner.url()).toBe(origin+'/before');
+}));

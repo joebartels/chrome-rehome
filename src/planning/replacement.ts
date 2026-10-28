@@ -69,7 +69,7 @@ export function planReplacement(input: Readonly<{
     destination = anchor.groupId === -1 ? Object.freeze({kind:'ungrouped',windowId:anchor.windowId,afterTabId:anchor.id})
       : Object.freeze({kind:'existing',windowId:anchor.windowId,groupId:anchor.groupId,position:Object.freeze({afterTabId:anchor.id})});
   } else if (groupTitle !== undefined) {
-    const result = planGroupDestination({tabId:checked.winner.id,windowId:checked.winner.windowId,incognito:checked.winner.incognito,title:groupTitle},snapshot);
+    const result = planGroupDestination({tabId:checked.winner.id,windowId:checked.winner.windowId,incognito:checked.winner.incognito,title:groupTitle},snapshot,{scope:'all-normal-windows'});
     if (result.kind === 'skip') return skip('state-changed');
     destination = result.destination.kind === 'new' ? Object.freeze({...result.destination})
       : Object.freeze({...result.destination,position:result.placement === 'already-grouped' ? 'keep' : 'end'});

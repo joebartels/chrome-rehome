@@ -44,3 +44,17 @@ describe('immutable replacement plan', () => {
     expect(decision([tab(1,0),tab(2,1,{groupId:5})], [{id:5,windowId:10,title:'Work',shared:true}], 'Work')).toEqual({kind:'skip',reason:'shared-group'});
   });
 });
+
+
+it('grouping-only reuses a remote group at its end without acquiring URL duplicates', () => {
+  const tabs = [tab(1,0),tab(3,0,{windowId:20,groupId:8,url:'https://other.test/'}),tab(4,1,{windowId:20,groupId:8,url:'https://member.test/'})];
+  const groups = [{id:8,windowId:20,title:'Work'}];
+  expect(decision(tabs,groups,'Work',[doc(1)])).toMatchObject({kind:'place',duplicates:[],destination:{kind:'existing',windowId:20,groupId:8,position:'end'}});
+  expect(decision(tabs,[{...groups[0]!,shared:true}],'Work',[doc(1)])).toEqual({kind:'skip',reason:'shared-group'});
+  expect(decision(tabs.filter(t=>t.id===1),groups,'Work',[doc(1)])).toEqual({kind:'skip',reason:'invalid-input'});
+});
+it.each([-1,9])('duplicate location %i wins over a remote rule group', groupId => {
+  const tabs = [tab(1,0),tab(2,0,{windowId:20,groupId}),tab(3,0,{windowId:30,groupId:8,url:'https://other.test/'})];
+  const groups = [{id:8,windowId:30,title:'Work'},...(groupId===-1?[]:[{id:9,windowId:20,title:'Manual B'}])];
+  expect(decision(tabs,groups,'Work')).toMatchObject({kind:'place',anchorTabId:2,destination:groupId===-1?{kind:'ungrouped',windowId:20,afterTabId:2}:{kind:'existing',windowId:20,groupId:9,position:{afterTabId:2}}});
+});
