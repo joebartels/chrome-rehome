@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ChromeReHome controls</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <main>
+      <h1>ChromeReHome</h1>
+      <section aria-labelledby="status-heading">
+        <h2 id="status-heading" aria-live="polite" aria-atomic="true">Checking processing status</h2>
+        <p id="status-description">Readiness is being checked.</p>
+        <div class="actions">
+          <button id="pause" type="button" disabled>Pause</button>
+          <button id="resume" type="button" disabled>Resume</button>
+        </div>
+        <p class="hint">Pause covers grouping and duplicate closure in normal and accessible incognito windows. Already issued browser actions may finish.</p>
+      </section>
+      <section aria-labelledby="tab-heading">
+        <h2 id="tab-heading">Current tab</h2>
+        <label class="check"><input id="protect" type="checkbox" disabled aria-describedby="target-message protection-help"><span>Protect this tab</span></label>
+        <p id="target-message" role="status">Checking the selected tab…</p>
+        <p id="protection-help" class="hint">Protect deliberate duplicates or unsaved edits manually. Unsaved edits are not automatically detected. Protection follows navigation and reload, including worker suspension. It ends when the tab closes or is replaced, or ChromeReHome or Chrome restarts.</p>
+      </section>
+      <p id="message" role="status" aria-live="polite"></p>
+      <footer><button id="refresh" type="button">Refresh status</button><button id="settings" type="button">Open settings</button></footer>
+    </main>
+    <script type="module" src="./index.js"></script>
+  </body>
+</html>

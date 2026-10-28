@@ -5,6 +5,10 @@ import { fixture, check } from '../package-fixture';
 
 describe('source boundaries', () => {
   it.each([
+    ['src/popup/controller.ts', 'import "../background/controls";'],
+    ['src/popup/view.ts', 'import type { EditorState } from "../options/controller";'],
+    ['src/options/view.ts', 'import "../popup/view";'],
+    ['src/background/index.ts', 'import "../popup/controller";'],
     ['src/config/schema.ts', 'chrome.storage.local.get("config");'],
     ['src/config/schema.ts', 'globalThis.chrome.storage.local.get("config");'],
     ['src/config/schema.ts', 'import "../browser/config-storage";'],

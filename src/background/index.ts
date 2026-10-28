@@ -1,3 +1,4 @@
+import { createStatusNotifier } from '../browser/control-status-hints';
 import { createControlTargets } from '../browser/control-target';
 import { createChromeProtectionStorage } from '../browser/protection-storage';
 import { createProtectionRepository } from '../protections/repository';
@@ -16,6 +17,7 @@ import { createNavigationTracker } from './navigation';
 import { createOperationQueue } from './operation-queue';
 import { registerEvents } from './register-events';
 
+const notifyStatus = createStatusNotifier(chrome.runtime);
 const diagnostics = createDiagnostics();
 const tracker = createNavigationTracker();
 const port = createPlacementAdapter(chrome);
@@ -25,17 +27,19 @@ const config = createConfigRepository(createChromeConfigStorage(chrome));
 let recoveryInitialized = false;
 const controls = createControlService({ config, protections: createProtectionRepository(createChromeProtectionStorage(chrome)), targets: createControlTargets(chrome), workerId: crypto.randomUUID(),
   runtime: () => !recoveryInitialized ? 'checking' : recovery.isReady() ? 'ready' : 'blocked' });
+controls.subscribe(notifyStatus);
+const consume = createPlacementConsumer({ tracker, port, journal, diagnostics });
 const coordinator = createCoordinator({
   config,
   controls,
   tracker,
-  recovery: { async initialize() { await recovery.initialize(); recoveryInitialized = true; }, isReady: recovery.isReady },
+  recovery: { async initialize() { try { await recovery.initialize(); } finally { recoveryInitialized = true; notifyStatus(); } }, isReady: recovery.isReady },
   queue: createOperationQueue(),
   diagnostics,
-  consume: createPlacementConsumer({ tracker, port, journal, diagnostics }),
+  async consume(event, context) { try { await consume(event, context); } finally { notifyStatus(); } },
 });
 const reportFailure = () => { diagnostics.record({ code: 'operation-failed' }); };
 
 registerControlMessages(chrome.runtime, controls);
 registerEvents(chrome, coordinator, reportFailure);
-void coordinator.initialize().catch(() => { reportFailure(); });
+void coordinator.initialize().catch(() => { reportFailure(); }).finally(notifyStatus);

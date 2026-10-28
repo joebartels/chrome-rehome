@@ -39,7 +39,7 @@ function checkDependency(name, target) {
   if ((from === 'config' && to !== 'config' && !sharedValidator) || (from === 'rules' && to !== 'rules') ||
     (from === 'planning' && !['planning', 'rules'].includes(to)) ||
     (from === 'execution' && !['execution', 'planning'].includes(to)) ||
-    (from === 'background' && to === 'options') || (from === 'options' && to === 'background')) fail('boundary', `${name} imports ${target}`);
+    (['background', 'options', 'popup'].includes(from) && ['background', 'options', 'popup'].includes(to) && from !== to)) fail('boundary', `${name} imports ${target}`);
 }
 export function checkSources(root) {
   for (const name of files(resolve(root, 'src')).filter((name) => /\.ts$/.test(name))) {
@@ -54,31 +54,34 @@ export function checkSources(root) {
   }
 }
 function checkManifest(manifest) {
-  const keys = ['manifest_version', 'name', 'version', 'minimum_chrome_version', 'permissions', 'background', 'options_ui'];
+  const keys = ['manifest_version', 'name', 'version', 'minimum_chrome_version', 'permissions', 'background', 'options_ui', 'action'];
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
   const version = typeof manifest.version === 'string' ? manifest.version.split('.') : [];
   const validVersion = version.length === 3 && version.every((part) => /^(0|[1-9]\d*)$/.test(part) && Number(part) <= 65535) && version.some((part) => Number(part) > 0);
   if (!same(Object.keys(manifest).sort(), keys.sort()) || manifest.manifest_version !== 3 || manifest.name !== 'ChromeReHome' || !validVersion || manifest.minimum_chrome_version !== '120' ||
     !same([...manifest.permissions ?? []].sort(), ['tabs', 'tabGroups', 'storage', 'webNavigation'].sort()) ||
     !same(manifest.background, { service_worker: 'background/index.js', type: 'module' }) ||
+    !same(manifest.action, { default_popup: 'popup/index.html' }) ||
     !same(manifest.options_ui, { page: 'options/index.html', open_in_tab: true })) fail('manifest', 'unexpected fields, permissions, version or entry points');
 }
 function checkCode(root) {
-  for (const name of ['background/index.js', 'options/index.js']) {
+  for (const name of ['background/index.js', 'options/index.js', 'popup/index.js']) {
     const forbidden = ['eval', 'Function', 'importScripts', 'fetch', 'XMLHttpRequest', 'WebSocket', 'Worker', 'SharedWorker', 'import'];
     const items = tokens(read(root, `dist/${name}`));
     if (dependencies(items).length || items.some((token) => forbidden.includes(token.text))) fail('code', `executable loading or network primitive in ${name}`);
   }
-  const html = read(root, 'dist/options/index.html');
+  for (const page of ['options', 'popup']) {
+  const html = read(root, `dist/${page}/index.html`);
   const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)];
   if ([...html.matchAll(/<script\b/gi)].length !== 1 || scripts.length !== 1 || !/^\s*type="module"\s+src="\.\/index\.js"\s*$/.test(scripts[0][1]) || scripts[0][2].trim() || /\bon\w+\s*=|javascript:|<iframe|<object|<embed/i.test(html)) fail('code', 'options HTML must load only its local module');
   const links = [...html.matchAll(/<link\b([^>]*)>/gi)];
   if (links.length !== 1 || !/^\s*rel="stylesheet"\s+href="\.\/styles\.css"\s*$/.test(links[0][1])) fail('code', 'options HTML must load only its local stylesheet');
-  if (/@import|url\s*\(/i.test(read(root, 'dist/options/styles.css'))) fail('code', 'stylesheet loads external assets');
+  if (/@import|url\s*\(/i.test(read(root, `dist/${page}/styles.css`))) fail('code', 'stylesheet loads external assets');
+  }
 }
 function checkGraph(root) {
   const graph = JSON.parse(read(root, '.build/metafile.json'));
-  const expected = ['dist/background/index.js', 'dist/options/index.js'];
+  const expected = ['dist/background/index.js', 'dist/options/index.js', 'dist/popup/index.js'];
   if (JSON.stringify(Object.keys(graph.outputs).sort()) !== JSON.stringify(expected)) fail('boundary', 'unexpected bundle outputs');
   for (const name of expected) {
     const output = graph.outputs[name];
@@ -98,10 +101,10 @@ function checkGraph(root) {
   }
 }
 export function checkPackage(root) {
-  const expected = ['background/index.js', 'manifest.json', 'options/index.html', 'options/index.js', 'options/styles.css'];
+  const expected = ['background/index.js', 'manifest.json', 'options/index.html', 'options/index.js', 'options/styles.css', 'popup/index.html', 'popup/index.js', 'popup/styles.css'];
   let actual;
   try { actual = files(resolve(root, 'dist')); } catch (error) { fail('files', error.message); }
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('files', `expected exactly five distribution files; found ${actual.join(', ')}`);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('files', `expected exactly eight distribution files; found ${actual.join(', ')}`);
   checkManifest(JSON.parse(read(root, 'dist/manifest.json')));
   checkCode(root);
   checkSources(root);

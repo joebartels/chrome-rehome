@@ -6,14 +6,17 @@ import { checkSources } from './check-package.mjs';
 const root = fileURLToPath(new URL('../', import.meta.url));
 checkSources(root);
 await rm(new URL('../dist/', import.meta.url), { recursive: true, force: true });
+await mkdir(new URL('../dist/popup/', import.meta.url), { recursive: true });
 await mkdir(new URL('../dist/options/', import.meta.url), { recursive: true });
 const result = await build({
   absWorkingDir: root,
-  entryPoints: { 'background/index': 'src/background/index.ts', 'options/index': 'src/options/index.ts' },
+  entryPoints: { 'popup/index': 'src/popup/index.ts', 'background/index': 'src/background/index.ts', 'options/index': 'src/options/index.ts' },
   outdir: 'dist', bundle: true, splitting: false, format: 'esm', platform: 'browser',
   target: 'chrome120', sourcemap: false, metafile: true, legalComments: 'none', charset: 'utf8',
 });
 for (const [source, destination] of [
+  ['src/popup/index.html', 'popup/index.html'],
+  ['src/popup/styles.css', 'popup/styles.css'],
   ['manifest.json', 'manifest.json'],
   ['src/options/index.html', 'options/index.html'],
   ['src/options/styles.css', 'options/styles.css'],

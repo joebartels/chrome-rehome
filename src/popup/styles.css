@@ -1,0 +1,21 @@
+:root { color-scheme: light dark; font: 14px/1.45 system-ui, sans-serif; --background: #f6f7f9; --surface: #fff; --text: #20242b; --muted: #505c6d; --border: #bcc4d0; --accent: #174ca3; --error: #a32618; }
+* { box-sizing: border-box; }
+html { width: 360px; }
+body { margin: 0; width: 360px; font: inherit; background: var(--background); color: var(--text); }
+main { padding: 1rem; }
+h1 { margin: 0 0 .8rem; font-size: 1.3rem; }
+h2 { margin: 0 0 .5rem; font-size: 1.1rem; }
+section { background: var(--surface); border: 1px solid var(--border); border-radius: .6rem; padding: .8rem; margin-bottom: .8rem; }
+p { margin: .5rem 0; overflow-wrap: anywhere; }
+.hint { color: var(--muted); font-size: .9rem; }
+.actions, footer { display: flex; flex-wrap: wrap; gap: .6rem; }
+button { font: inherit; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: .35rem; padding: .45rem .7rem; cursor: pointer; }
+.actions button { flex: 1; }
+button:disabled { opacity: .55; cursor: default; }
+button:hover:enabled { border-color: var(--accent); }
+:focus-visible { outline: 3px solid var(--accent); outline-offset: 3px; }
+.check { display: flex; align-items: baseline; gap: .6rem; font-weight: 600; }
+input { accent-color: var(--accent); flex-shrink: 0; }
+#message { min-height: 1.45em; }
+[data-severity="error"] { color: var(--error); }
+@media (prefers-color-scheme: dark) { :root { --background: #191b20; --surface: #242831; --text: #e8eaf0; --muted: #b9c2d1; --border: #646e7f; --accent: #9abfff; --error: #ffb4a8; } }

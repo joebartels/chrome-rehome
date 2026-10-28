@@ -176,7 +176,7 @@ describe('worker event registration', () => {
       return {};
     });
     const messages = event<Parameters<typeof chrome.runtime.onMessage.addListener>[0]>();
-    vi.stubGlobal('chrome', { ...fake, runtime: { ...fake.runtime, id: 'self',
+    vi.stubGlobal('chrome', { ...fake, runtime: { ...fake.runtime, sendMessage: vi.fn(async () => {}), id: 'self',
       getURL: (path: string) => `chrome-extension://self/${path}`, onMessage: messages } });
     await import('../../src/background/index');
     expect(messages.listeners.size).toBe(1);
