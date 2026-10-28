@@ -1,6 +1,6 @@
 # 008: Pause controls and replacement protections
 
-Status: in progress (2026-10-28); delegated implementation and independent review authorized.
+Status: implementation and independent source reviews complete (2026-10-28); final native verification pending manual desktop unlock. Task008 remains open; Task009 has not started.
 
 Depends on: 006, 007
 
@@ -14,9 +14,9 @@ popup/; shared configuration; planning eligibility policy.
 
 ## Acceptance criteria and decisions
 
-- [ ] Decide pinned/audible-tab behavior, deliberate duplicates/bypass, and form-edit protection. Browser metadata alone cannot reliably detect arbitrary unsaved edits.
-- [ ] Keep any stronger page-inspection requirement optional and review its permissions separately.
-- [ ] Provide global pause and clear status; configuration changes must invalidate queued work that is no longer eligible.
+- [x] Decide pinned/audible-tab behavior, deliberate duplicates/bypass, and form-edit protection. Browser metadata alone cannot reliably detect arbitrary unsaved edits.
+- [x] Keep any stronger page-inspection requirement optional and review its permissions separately.
+- [x] Provide global pause and clear status; configuration changes must invalidate queued work that is no longer eligible.
 - [ ] Test pause during queued replacement, protected duplicates, background opens, restored sessions, and normal/incognito separation.
 
 ## Implementation discipline
@@ -28,3 +28,7 @@ Start with the behavior tests named above; run them failing before implementatio
 Use worker-owned global pause/resume and rules-only editor saves; retain schema4 and default-off. A session-only Protect this tab control supports deliberate duplicates and unsaved edits without page inspection. Pinned exclusions stay; audible/protected incoming tabs skip work. Older audible/protected duplicates retain anchor priority, allow valid incoming placement, and retain all older duplicates for that plan. Live protection/audio changes revoke further work. Protection follows tab navigation/worker suspension and ends at tab close/replacement or extension/browser restart. No reset bypasses journal quarantine. Expand the strict package to eight files for the action popup; add no permissions/dependencies. Task011 recent tabs is backlog only.
 
 [Design](../../superpowers/specs/2026-10-28-pause-protections-design.md) · [Plan](../../superpowers/plans/2026-10-28-pause-protections.md).
+
+## Verification status
+
+Final source historical-revision: root 1,225 portable tests / 41 files, typecheck, build, eight-file package and six headless popup cases pass. Delegated implementation, per-task reviews, whole-branch review and scoped fixes are complete with no open source findings. The complete current final 151-case browser run and strengthened actual-native enlarged-text/keyboard checks remain pending because the host relocked. These are required completion gates, not claimed passes. See [evidence and Chrome walkthrough](../../reviews/2026-10-28-pause-protections-completion.md).
