@@ -19,6 +19,7 @@ The explicitly enabled production trial places the winning tab, retains its ID/h
 - [008: Pause controls and replacement protections](todo/008-pause-controls-and-replacement-protections.md) — depends on 006, 007
 - [009: Real-browser feature regression suite](todo/009-real-browser-feature-regression-suite.md) — depends on 006, 007, 008
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009
+- [011: Recent tabs across windows](todo/011-recent-tabs-popup.md) — future; extends 008 popup, not included in 008
 
 Tasks 001 and 002 are independent pure rule engines. Task numbers are stable identifiers; completion is tracked in each file. Default activation still waits for protections in 008 and the full regression gate in 009.
 

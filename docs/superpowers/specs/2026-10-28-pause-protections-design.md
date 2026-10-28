@@ -1,0 +1,54 @@
+# Pause controls and replacement protections
+
+Task008 is authorized for delegated implementation and independent review. Complete it and pause before009. Keep this checkout in place on `pause-controls-protections`; baseline `historical-revision`. User confirmed007b works and requested a focused robustness check and a future recent-tabs popup backlog item.
+
+## Approach and scope
+
+Controller choice under the user's go-ahead: a worker-owned command service, a separate session protection registry, and a small action popup. Direct read/modify/write from both popup and options would allow an old editor write to undo pause or overwrite rules; use one production writer instead. A separate persisted master flag would create competing activation authorities, so retain schema4 `enabled`. Automatic form inspection would require page access and cannot reliably detect arbitrary unsaved state; use explicit tab protection now and defer inspection/permissions research.
+
+No dependency, permission, host permission, content script, page injection, configuration schema change or default activation. Chrome120 minimum, Node24, MV3. Existing incoming identity/history, duplicate-anchor priority, same-URL history correction, normal/incognito isolation, journal quarantine/read-only recovery, serialized native settlement and no replay/retry/timeout remain binding. Do not implement009–011.
+
+## User behavior
+
+- Clicking the extension opens a compact popup with actual processing status, global Pause/Resume, current-tab protection and an Open settings link. Status distinguishes checking/applying, active, paused, unavailable config/protections and recovery blocked. Saved enabled alone must not claim active. Pausing stops future automatic grouping and closure; resuming admits only future eligible navigation, with no scan/replay of existing tabs.
+- Fresh installs remain off. Preserve existing activation and rules. A blocked journal cannot be cleared/unblocked by any popup command; do not offer a reset. Disable unsafe resume/protection actions when readiness is unknown, but permit a valid explicit pause when configuration storage permits it.
+- Pinned exclusions remain unchanged. An initially audible or manually protected incoming winner skips all automatic work. Initial older audible/protected duplicates retain their existing place in anchor selection; if any exists, allow otherwise-valid winner placement but retain **all** older duplicates. This preserves manual group/window preference without changing journal removal-prefix grammar. Protected older tabs themselves are neither moved nor closed; insertion/removal elsewhere can naturally shift indices.
+- Manual protection supports deliberate duplicates and unsaved forms without inspecting the page. It follows the tab through page navigation/reload and worker suspension; it ends at tab close/replacement or extension/browser restart. Do not transfer it to a replacement ID. Copy must explain that unsaved edits are not automatically detected and protection is session-only.
+- Pausing or changing protection while work is queued/in flight revokes that work before another mutation. Already-issued native calls remain awaited and can finish; previously verified closes remain closed. Pause followed by resume must never revive old work.
+- Global pause covers normal/incognito windows visible to the existing spanning extension. Per-tab protection is keyed by tab ID plus incognito context. The popup exposes only its current tab's state, with no cross-context tab list.
+
+## Command ownership and status
+
+Add a narrow neutral `controls/` protocol/client and a worker-owned service in `background/controls.ts`. Production options and popup writes go through it. Keep pure planning free of Chrome/storage imports. Commands are `get-status`, `set-enabled`, `set-tab-protected`, and `save-rules`; no generic storage patch or arbitrary Chrome RPC. Validate exact shapes, finite bounded IDs/revisions, booleans and rule data. The adapter accepts only this extension's exact popup/options pages; do not register external messaging. Use literal `true` plus `sendResponse` for asynchronous onMessage replies to retain Chrome120 compatibility, not newer promise-only listener behavior.
+
+Export worker-scoped `ControlVersion {workerId, revision}`, `TabReceipt {tabId, windowId, incognito, documentId}`, `RuleLists {groupingRules, duplicateRules}` and immutable runtime/target snapshots. Mutation commands carry expected control version; stale queued resume/unprotect requests conflict rather than applying obsolete intent. `save-rules` carries baseline and replacement rules only, compares the baseline inside the writer queue, validates with existing compilers/schema, and preserves the **current** master flag. Options drafts retain private rule edits across enabled-only updates; real rule conflicts keep the current reload/conflict workflow. No popup write can replace rules from a captured snapshot.
+
+Use a command queue independent of the operation queue. Install a synchronous admission barrier/generation advance for accepted control mutation intent **before waiting for that queue or any storage await**. An older rules write can finish for serialization but cannot reopen processing while pause is pending. Hold admission until state is persisted and verified; storage failure fails closed with truthful status. Revalidate queued expected versions and cancellation so a previously queued resume cannot override a newer pause. Status reads must remain responsive while native calls or command persistence are unresolved. No automatic retries after disconnected/uncertain command results; refresh state instead.
+
+Expose immutable capture/current-guard methods to the coordinator and consumer. Config/session load/change invalidates authority synchronously before its awaited read, and control generations never refresh a stale operation. Startup loads protection state before admission. Runtime readiness includes recovery and journal state, not just configuration. Reopening UI or saving settings does not recover a pending journal.
+
+Popup protection commands re-read the targeted active tab and active outermost document; reject changed window/privacy/document, closed tab or lost selection against the displayed receipt. Recheck currency around reads/writes; don't show a stale protection success. Unsupported/unavailable current documents have no protection control, while the valid global control remains usable. Stored protection remains tab-lifetime scoped, not document-lifetime scoped.
+
+## Session protection and audible eligibility
+
+Use only `storage.session.chromeReHomeProtections`, strict `{version:1,tabs:[{tabId,incognito}]}` with unique IDs and at most1000 entries; reject malformed/future/oversized state without erasing it. Missing means empty. Do not persist URL/title/form/document content. Refuse additions at the limit rather than evicting an existing protection. Serialize lifecycle cleanup and protection commands through the same writer queue; removal/replacement revokes synchronously before deferred cleanup. Prune absent IDs against live context at startup. Failed reads/writes close admission and report unavailable.
+
+Chrome documents browser-session-unique [tab IDs](https://developer.chrome.com/docs/extensions/reference/api/tabs#type-Tab) and [session storage clearing](https://developer.chrome.com/docs/extensions/reference/api/storage#storage_areas) on extension/browser restart; together these bound stored identity lifetime. Worker suspension is not a restart of that storage area.
+
+Snapshots already carry audible state. Make it explicit in candidate copies and pure policy input; apply winner eligibility in both initial selection and planning re-selection without filtering the full structural snapshot. Carry a plan-level closure eligibility decision that composes with existing document-based closure eligibility. All initial protected/audible older duplicates remain ordered/anchorable, but all older duplicates are retained for that plan. A later protection/audio change revokes operation authority; stopping audio/unprotecting does not replay skipped work.
+
+Check participant audio state against the captured plan at existing snapshot/document barriers and immediately before each native removal, including after its pending journal write. Register audible `tabs.onUpdated` changes as control-generation revocation, not navigation provenance invalidation. Do not require unrelated tabs' audio equality in structural verification. Keep live snapshot checks as well as event revocation because observations interleave. No atomic “remove only if silent” API exists; retain the existing final-check-to-call limitation rather than claiming transactionality.
+
+## Popup/package and extensibility
+
+Use `src/popup/{index.ts,controller.ts,view.ts,index.html,styles.css}` with accessible native controls, compact width, keyboard focus, loading/error feedback and no framework. Keep client/controller/view separate. Add manifest action/default_popup. Expand the exact package from five to eight files: existing five plus popup HTML/JS/CSS; three independently bundled JS entry graphs. Apply existing local-code/CSP/permission/source-boundary checks to popup HTML/CSS and popup/options/background cross-imports. Do not loosen allowlists generally.
+
+Task011 records a future bounded recent-opened/recent-active tab list across windows. Add no recency listener/cache/list UI now. Popup structure may later add a separate list section without coupling it to control authority or matching.
+
+## Verification and completion
+
+Use RED/GREEN before each implementation task. Cover stale rule-editor/pause ordering, queued resume versus newer pause, storage failure/overlapping reads, startup protection gate, stale target receipts, audio/protection changes during snapshot/document/journal/native/removal waits, protected anchor/non-anchor all-or-none retention, background opens, worker restart, restored/reload eligibility and normal/incognito separation. Test forbidden senders and malformed messages. Native browser checks use isolated profiles only; include the existing same-URL/cross-window/external-app regressions and report capability limits honestly.
+
+The focused007b audit found no product defect; retain its regression tests. Fix the small native-test cleanup gap: optional helper disposal must be attempted independently alongside existing cleanup, with a portable throwing-helper regression proving remaining resources are released and the original failure is preserved.
+
+Run typecheck, full unit/integration, build/package and full browser verification; independently review each task and the final changeset. Inspect popup screenshots, keep defaults off, document manual unsaved-edit protection/lifetime and the atomicity/recovery limits. Record completion and Chrome walkthrough, preserve detailed evidence, then pause before009.
