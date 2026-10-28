@@ -64,12 +64,27 @@ Saving keeps your global activation state; a fresh installation remains disabled
 
 ## Try cross-window group reuse and focus
 
-1. For an already-enabled Task006/007a controlled trial, reload ChromeReHome in `chrome://extensions` with activation preserved, then continue the trial. For a Task005-or-earlier placement-only build, follow the pause-before-reload precaution above. Fresh or disabled installations stay disabled. If Options says **Automatic replacement is disabled** for an existing configuration, both grouping and duplicate handling are off; use the existing-config activation block below to enable the controlled trial without replacing saved rules. Saving rules preserves the master activation flag. This flag takes effect immediately without a reload; Task 008's activation toggle UI is not implemented yet.
+1. For an already-enabled Task006/007a controlled trial, reload ChromeReHome in `chrome://extensions` with activation preserved, then continue the trial. For a Task005-or-earlier placement-only build, follow the pause-before-reload precaution above. Fresh or disabled installations stay disabled. If Options says **Automatic replacement is disabled** for an existing configuration, both grouping and duplicate handling are off; use the existing-config activation block after step 6 to enable the controlled trial without replacing saved rules.
 2. Save a grouping rule `https://example.com/*` → `Group A`. In window 1, keep exactly one live group named `Group A` with at least one tab. Existing same-name groups are not automatically merged; rename/consolidate extras for this test.
 3. In window 2, open [the script-free local test page](docs/testing/cross-window-links.html) using Chrome’s Open File command (Cmd+O on macOS). Close older tabs at the two test URLs first so duplicate inheritance does not select another location.
 4. Click **Foreground test** normally. The incoming tab should move into the original Group A in window 1, become active, and bring window 1 forward. The group ID/title and the incoming tab ID are retained.
 5. Return to window 2 and **Cmd-click Background test** (Ctrl-click on Windows/Linux). It should join Group A while window 2 stays in front and window 1 keeps its prior active tab. The native focus test automation currently runs on macOS; other platforms still need their manual release trial.
 6. Check that there is still one Group A. To verify manual organization, place an older exact-URL duplicate in another group and reopen its URL: that duplicate’s location still wins over the configured group title. With no eligible group or duplicate anywhere, a matching rule creates the group in the incoming window.
+
+Saving rules preserves the master activation flag. The flag takes effect immediately without a reload; Task 008's activation toggle UI is not implemented yet. To enable an existing configuration for the controlled trial while preserving all saved rules, use the service worker console:
+
+```js
+{
+  const key = 'chromeReHomeConfig';
+  const saved = (await chrome.storage.local.get(key))[key];
+  if (!saved) throw new Error('No saved configuration found.');
+  await chrome.storage.local.set({[key]: {...saved, enabled:true}});
+}
+```
+
+Verify Options no longer says **Automatic replacement is disabled** before continuing the trial.
+
+Validated same-document history updates with an exactly unchanged URL preserve an operation already in progress. They create no new work. Real URL/document changes and invalid event metadata still cancel stale work; page state-only updates therefore cannot interrupt an otherwise-valid foreground handoff.
 
 Foreground intent requires the incoming tab to be active in the first snapshot and its source window focused in corroborating evidence, before movement. Missing/ambiguous initial attention grants no focus authority. User attention changes during guarded placement stop further presentation and duplicate closure. Once verified placement is durably accepted, later focus-only switches do not cancel otherwise-safe duplicate cleanup; there are no further presentation calls. Snapshot checks cannot distinguish every user action during native selection changes or eliminate the final check-to-call interval.
 
@@ -113,19 +128,6 @@ if (backup !== undefined) {
   await chrome.storage.local.set({chromeReHomeConfig: {...backup, enabled:false}});
 } // Missing configuration is already disabled.
 ```
-
-For an existing configuration that should be enabled for a controlled trial, use the service worker console to set only the master flag, preserving all saved rules:
-
-```js
-{
-  const key = 'chromeReHomeConfig';
-  const saved = (await chrome.storage.local.get(key))[key];
-  if (!saved) throw new Error('No saved configuration found.');
-  await chrome.storage.local.set({[key]: {...saved, enabled:true}});
-}
-```
-
-The change takes effect immediately; no reload is needed. Verify Options no longer says **Automatic replacement is disabled** before continuing the trial.
 
 Verify options says disabled, then reload the unpacked extension after building. Reopening DevTools loses the `backup` binding; keep the exported wrapper. Enable a fresh explicit trial with schema 4:
 
