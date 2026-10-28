@@ -47,6 +47,12 @@ export async function attachActionPopup(context: BrowserContext, url: string) {
       await send('Input.dispatchMouseEvent', { type: 'mousePressed', ...point, button: 'left', clickCount: 1 });
       await send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...point, button: 'left', clickCount: 1 });
     },
+    async press(key: 'Tab' | 'Enter', shift = false) {
+      const keyCode = key === 'Tab' ? 9 : 13;
+      const event = { key, code: key, windowsVirtualKeyCode: keyCode, modifiers: shift ? 8 : 0 };
+      await send('Input.dispatchKeyEvent', { type: key === 'Tab' ? 'rawKeyDown' : 'keyDown', ...event });
+      await send('Input.dispatchKeyEvent', { type: 'keyUp', ...event });
+    },
     async screenshot(info: TestInfo, name: string) {
       await evaluate('window.scrollTo(0,0)');
       const metrics=await evaluate('({width:innerWidth,height:innerHeight,scale:devicePixelRatio,font:getComputedStyle(document.body).fontSize,scrollHeight:document.documentElement.scrollHeight,scrollWidth:document.documentElement.scrollWidth})');

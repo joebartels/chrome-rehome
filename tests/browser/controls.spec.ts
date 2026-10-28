@@ -56,22 +56,76 @@ test('popup page prepares manual protection while paused, toggles global process
   expect(await popup.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await screenshot(popup,info,'enlarged-keyboard');
 }));
-test('popup Pause prevents future grouping and closure; Resume admits only fresh navigation and preserves rules',async()=>fixture(async f=>{
+test('popup Pause prevents future grouping and closure; Resume admits only fresh navigation and preserves rules',async({},info)=>fixture(async f=>{
   const {popup,options,context}=f;
-  const rules=[{enabled:true,pattern:'https://controls.test/*',group:'Controls'}];
+  const duplicateUrl='https://controls.test/target';
+  const rules=[{enabled:true,pattern:duplicateUrl,group:'Controls'},{enabled:true,pattern:'https://controls.test/group-*',group:'Controls'}];
+  const tabs=()=>options.evaluate(()=>chrome.tabs.query({}));
+  const ids=async()=> (await tabs()).map(tab=>tab.id!).sort((a,b)=>a-b);
+  const matchingIds=async()=> (await tabs()).filter(tab=>tab.url===duplicateUrl).map(tab=>tab.id!).sort((a,b)=>a-b);
+  async function beforeIncoming(path:string) {
+    const page=await context.newPage(); await page.goto('https://controls.test/'+path);
+    const id=(await tabs()).find(tab=>tab.url===page.url())!.id!;
+    return {page,id,before:page.url()};
+  }
   await options.evaluate(groupingRules=>chrome.storage.local.set({chromeReHomeConfig:{schemaVersion:4,enabled:false,groupingRules,duplicateRules:[]}}),rules);
   await expect(popup.getByRole('heading',{name:'Paused',exact:true})).toBeVisible();
-  const retained=await context.newPage(); await retained.goto('https://controls.test/target');
-  const incoming=await context.newPage(); await incoming.goto('https://controls.test/target');
-  expect(await options.evaluate(async()=> (await chrome.tabs.query({})).filter(t=>t.url==='https://controls.test/target').length)).toBe(2);
+  await options.evaluate(()=>{
+    const removed:number[]=[];
+    (globalThis as unknown as {closureRemoved:number[]}).closureRemoved=removed;
+    chrome.tabs.onRemoved.addListener(id=>removed.push(id));
+  });
+  const retained=await context.newPage(); await retained.goto(duplicateUrl);
+  const initialIncoming=await context.newPage(); await initialIncoming.goto(duplicateUrl);
+  const initialIds=await matchingIds(); expect(initialIds).toHaveLength(2);
+  const anchorGroup=(await tabs()).find(tab=>tab.id===initialIds[0])!.groupId;
   await popup.getByRole('button',{name:'Resume',exact:true}).click(); await expect(popup.getByRole('heading',{name:'Active',exact:true})).toBeVisible();
-  expect(await options.evaluate(async()=> (await chrome.tabs.query({})).filter(t=>t.url==='https://controls.test/target').length)).toBe(2);
-  const fresh=await context.newPage(); await fresh.goto('https://controls.test/fresh');
-  await expect.poll(()=>options.evaluate(async()=> (await chrome.tabs.query({})).find(t=>t.url==='https://controls.test/fresh')?.groupId)).not.toBe(-1);
+  expect(await matchingIds()).toEqual(initialIds); // Resume cannot replay the paused duplicate opportunity.
+
+  const active=await beforeIncoming('active-before');
+  const beforeActive=await ids();
+  await active.page.getByRole('link',{name:'Navigate'}).click();
+  await expect.poll(matchingIds).toEqual([active.id]);
+  expect(await ids()).toEqual(beforeActive.filter(id=>!initialIds.includes(id)));
+  expect((await tabs()).find(tab=>tab.id===active.id)).toMatchObject({url:duplicateUrl,groupId:expect.any(Number)});
+  expect((await tabs()).find(tab=>tab.id===active.id)!.groupId).toBe(anchorGroup); // Duplicate placement preserves the older anchor's manual grouping preference.
+  expect(active.page.isClosed()).toBe(false);
+  await active.page.goBack(); expect(active.page.url()).toBe(active.before);
+  expect((await tabs()).find(tab=>tab.url===active.before)!.id).toBe(active.id);
+  await active.page.goForward(); expect(active.page.url()).toBe(duplicateUrl);
+  expect(await matchingIds()).toEqual([active.id]);
+
+  const grouped=await context.newPage(); await grouped.goto('https://controls.test/group-only');
+  await expect.poll(async()=> (await tabs()).find(tab=>tab.url===grouped.url())?.groupId ?? -1).toBeGreaterThanOrEqual(0);
   await popup.getByRole('button',{name:'Pause',exact:true}).click(); await expect(popup.getByRole('heading',{name:'Paused',exact:true})).toBeVisible();
-  const untouched=await context.newPage(); await untouched.goto('https://controls.test/future');
-  expect(await options.evaluate(async()=> (await chrome.tabs.query({})).find(t=>t.url==='https://controls.test/future')?.groupId)).toBe(-1);
+  const untouched=await context.newPage(); await untouched.goto('https://controls.test/group-paused');
+  expect((await tabs()).find(tab=>tab.url===untouched.url())!.groupId).toBe(-1);
+  const paused=await beforeIncoming('paused-before');
+  const beforePaused=await ids();
+  await paused.page.getByRole('link',{name:'Navigate'}).click();
+  const pausedIds=[active.id,paused.id].sort((a,b)=>a-b);
+  expect(await matchingIds()).toEqual(pausedIds);
+  expect(await ids()).toEqual(beforePaused);
+  expect((await tabs()).find(tab=>tab.id===paused.id)!.groupId).toBe(-1);
+  await popup.getByRole('button',{name:'Resume',exact:true}).click(); await expect(popup.getByRole('heading',{name:'Active',exact:true})).toBeVisible();
+  expect(await matchingIds()).toEqual(pausedIds);
+  expect(await ids()).toEqual(beforePaused);
+
+  const resumed=await beforeIncoming('resumed-before');
+  const beforeResumed=await ids();
+  await resumed.page.getByRole('link',{name:'Navigate'}).click();
+  await expect.poll(matchingIds).toEqual([resumed.id]);
+  expect(await ids()).toEqual(beforeResumed.filter(id=>!pausedIds.includes(id)));
+  expect(resumed.page.isClosed()).toBe(false);
+  await resumed.page.goBack(); expect(resumed.page.url()).toBe(resumed.before);
+  expect((await tabs()).find(tab=>tab.url===resumed.before)!.id).toBe(resumed.id);
+  await resumed.page.goForward(); expect(resumed.page.url()).toBe(duplicateUrl);
+  expect(await matchingIds()).toEqual([resumed.id]);
+  const expectedRemoved=[...initialIds,...pausedIds].sort((a,b)=>a-b);
+  await expect.poll(()=>options.evaluate(()=>(globalThis as unknown as {closureRemoved:number[]}).closureRemoved.slice().sort((a,b)=>a-b))).toEqual(expectedRemoved);
+  await popup.getByRole('button',{name:'Pause',exact:true}).click(); await expect(popup.getByRole('heading',{name:'Paused',exact:true})).toBeVisible();
   expect(await options.evaluate(async()=> (await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig)).toEqual({schemaVersion:4,enabled:false,groupingRules:rules,duplicateRules:[]});
+  await info.attach('popup-closure-cycle',{body:JSON.stringify({initialIds,activeIncomingId:active.id,pausedIds,resumedIncomingId:resumed.id,removedTabIds:expectedRemoved,activeHistoryBefore:active.before,resumedHistoryBefore:resumed.before,finalIds:await ids()}),contentType:'application/json'});
 }));
 test('popup reflects invalid protection and configuration state through read-only hints without overwriting data',async({},info)=>fixture(async({popup,options})=>{
   const corrupt={version:99,tabs:[]};
@@ -130,6 +184,23 @@ test('native action popup uses the actual selected web tab and owned-profile inc
   await action.click('#protect'); await expect.poll(action.checked).toBe(true);
   await expect.poll(action.heading).toBe('Paused'); await action.screenshot(info,'native-action-paused-protected');
   await action.click('#resume'); await expect.poll(action.heading).toBe('Active'); await action.screenshot(info,'native-action-active');
+  // Enlarge the actual action target, then use real CDP keyboard input in it.
+  await action.evaluate('document.documentElement.style.fontSize="28px"');
+  expect(await action.evaluate('getComputedStyle(document.body).fontSize')).toBe('28px');
+  expect(await action.evaluate('document.documentElement.clientWidth')).toBe(360);
+  expect(await action.evaluate('document.documentElement.scrollWidth > innerWidth')).toBe(false);
+  await action.evaluate('document.querySelector("#pause").focus()');
+  await action.press('Tab'); await expect.poll(()=>action.evaluate('document.activeElement.id')).toBe('protect'); // Resume is disabled while active.
+  await action.press('Tab',true); await expect.poll(()=>action.evaluate('document.activeElement.id')).toBe('pause');
+  expect(await action.evaluate('getComputedStyle(document.activeElement).outlineStyle')).toBe('solid');
+  await action.screenshot(info,'native-action-enlarged-keyboard-active');
+  await action.press('Enter'); await expect.poll(action.heading).toBe('Paused');
+  await action.evaluate('document.querySelector("#pause").focus()');
+  await action.press('Tab'); await expect.poll(()=>action.evaluate('document.activeElement.id')).toBe('resume');
+  expect(await action.evaluate('getComputedStyle(document.activeElement).outlineStyle')).toBe('solid');
+  expect(await action.evaluate('document.documentElement.scrollWidth > innerWidth')).toBe(false);
+  await action.screenshot(info,'native-action-enlarged-keyboard-paused');
+  await action.press('Enter'); await expect.poll(action.heading).toBe('Active');
   await action.close();
   const extensions=await context.newPage(); await extensions.goto('chrome://extensions/?id='+extensionId);
   const developerMode=extensions.locator('extensions-toolbar #devMode');
