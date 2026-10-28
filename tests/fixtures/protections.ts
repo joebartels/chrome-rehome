@@ -11,7 +11,7 @@ export function protectionFixture(initial: unknown = undefined) {
   let live = async () => [{ tabId: 7, incognito: false }, { tabId: 8, incognito: true }];
   const writes: ProtectionValue[] = [];
   const protections = createProtectionRepository({ read: () => read(), write: value => { writes.push(value); return write(value); }, subscribe: fn => { changed = fn; return () => {}; } });
-  return { protections, targets: { read: () => targetRead(), list: () => live() }, writes,
+  return { protections, targets: { observe: () => ({ isCurrent: () => true, dispose() {} }), read: () => targetRead(), list: () => live() }, writes,
     get raw() { return raw; }, setRaw(value: unknown) { raw = value; },
     external(value: unknown) { raw = value; changed(value); },
     setRead(fn: typeof read) { read = fn; }, setWrite(fn: typeof write) { write = fn; },

@@ -2,17 +2,9 @@ import { createControlService } from '../../src/background/controls';
 import { createConfigRepository } from '../../src/config/repository';
 import { protectionFixture } from '../fixtures/protections';
 import { expect, test } from 'vitest';
-import { createControlTargets } from '../../src/browser/control-target';
 import { createChromeProtectionStorage } from '../../src/browser/protection-storage';
 import { createProtectionRepository } from '../../src/protections/repository';
-const hint = { tabId: 7, windowId: 10, incognito: false };
-function fixture() {
-  let tab: any = { id: 7, windowId: 10, incognito: false, active: true, pinned: false, audible: false, url: 'https://example.test/' };
-  let frame: any = { documentId: 'doc', url: tab.url, documentLifecycle: 'active', frameType: 'outermost_frame', parentFrameId: -1, errorOccurred: false };
-  const queries: unknown[] = []; let afterDocument = () => {};
-  const port = createControlTargets({ tabs: { query: async (query: unknown) => { queries.push(query); return tab ? [tab] : []; } }, webNavigation: { getFrame: async () => { afterDocument(); return frame; } } } as unknown as Pick<typeof chrome, 'tabs' | 'webNavigation'>);
-  return { port, queries, get tab() { return tab; }, set tab(next) { tab = next; }, get frame() { return frame; }, set frame(next) { frame = next; }, after(fn: () => void) { afterDocument = fn; } };
-}
+import { targetFixture as fixture, targetHint as hint } from '../fixtures/control-target';
 test('target status uses its UI-owned window selection, strips URL/title, and brackets document lookup', async () => {
   const f = fixture(); expect(await f.port.read(hint)).toEqual({ receipt: { ...hint, documentId: 'doc' }, audible: false, pinned: false });
   expect(f.queries).toEqual([{ windowId: 10, active: true }, { windowId: 10, active: true }]);

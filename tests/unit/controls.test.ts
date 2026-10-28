@@ -182,3 +182,16 @@ test('status subscribers see pending config reads synchronously without waiting 
   gate.resolve(initial); await flush(); expect(phases.at(-1)).toBe('active');
   unsubscribe(); const count = phases.length; h.service.invalidate(); expect(phases).toHaveLength(count);
 });
+
+test.each([rules, changed])('rules save cannot certify a failed pause; explicit pause then resume is required', async replacement => {
+  const h = harness(); await h.service.initialize(); h.setWrite(async () => { throw Error('failed pause'); });
+  expect((await h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: false })).kind).toBe('unavailable');
+  h.setWrite(async value => { h.setRaw(value); });
+  expect((await h.service.handle({ kind: 'save-rules', expected: h.service.getStatus().version, baseRules: rules, rules: replacement })).kind).toBe('ok');
+  expect(h.service.getStatus().phase).toBe('unavailable'); expect(h.service.capture()).toBeUndefined(); expect(h.raw).toMatchObject({ enabled: true });
+  expect((await h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: true })).kind).toBe('unavailable');
+  expect((await h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: false })).kind).toBe('ok');
+  expect(h.service.getStatus().phase).toBe('paused');
+  expect((await h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: true })).kind).toBe('ok');
+  expect(h.service.getStatus().phase).toBe('active');
+});

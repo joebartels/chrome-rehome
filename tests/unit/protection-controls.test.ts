@@ -8,10 +8,11 @@ const stored = { version: 1, tabs: [{ tabId: 7, incognito: false }] };
 const hint = { tabId: 7, windowId: 10, incognito: false };
 function fixture(raw?: unknown, enabled = true) {
   const f = protectionFixture(raw); let readiness: 'checking' | 'ready' | 'blocked' = 'ready'; let configRaw: unknown = { ...initial, enabled };
-  const config = createConfigRepository({ read: async () => configRaw, write: async next => { configRaw = next; }, subscribe: () => () => {} });
+  let configWriteFails = false;
+  const config = createConfigRepository({ read: async () => configRaw, write: async next => { if (configWriteFails) throw Error('config unavailable'); configRaw = next; }, subscribe: () => () => {} });
   const service = createControlService({ config, protections: f.protections, targets: f.targets, workerId: 'worker', runtime: () => readiness });
   const protect = (value: boolean, target = receipt) => service.handle({ kind: 'set-tab-protected', expected: service.getStatus().version, target, protected: value });
-  return { ...f, service, config, protect, setReadiness(value: typeof readiness) { readiness = value; }, get raw() { return f.raw; }, get configRaw() { return configRaw; } };
+  return { ...f, service, config, protect, failConfigWrite(value: boolean) { configWriteFails = value; }, setReadiness(value: typeof readiness) { readiness = value; }, get raw() { return f.raw; }, get configRaw() { return configRaw; } };
 }
 const flush = async () => { for (let i = 0; i < 25; ++i) await Promise.resolve(); };
 test('both stores gate startup; initial prune and its own echo preserve first navigation generation', async () => {
@@ -142,4 +143,60 @@ test('protection cannot cross recovery readiness loss during its target prefligh
   const f = fixture(); await f.service.initialize(); const gate = deferred<{ receipt: typeof receipt; audible: boolean; pinned: boolean }>(); f.setTargetRead(() => gate.promise);
   const pending = f.protect(false); await flush(); f.setReadiness('blocked'); gate.resolve({ receipt, audible: false, pinned: false });
   expect((await pending).kind).toBe('unavailable'); expect(f.writes).toEqual([]);
+});
+
+async function staleUnprotect(f: ReturnType<typeof fixture>) {
+  f.setWrite(async value => { f.setRaw(value); f.setTarget(undefined); });
+  expect((await f.protect(false)).kind).toBe('conflict');
+  expect(f.service.getStatus().phase).toBe('unavailable');
+  f.setWrite(async value => { f.setRaw(value); });
+}
+const noRules = { groupingRules: [], duplicateRules: [] };
+const newRules = { groupingRules: [{ enabled: true, pattern: 'https://example.com/*', group: 'Work' }], duplicateRules: [] };
+test.each([['unchanged', noRules], ['changed', newRules]] as const)('a %s rules save cannot clear stale-unprotect authority', async (_name, rules) => {
+  const f = fixture(stored); await f.service.initialize(); await staleUnprotect(f);
+  expect(await f.service.handle({ kind: 'save-rules', expected: f.service.getStatus().version, baseRules: noRules, rules })).toMatchObject({ kind: 'ok', status: { phase: 'unavailable' } });
+  expect(f.service.capture()).toBeUndefined(); expect(f.raw).toEqual({ version: 1, tabs: [] });
+  f.setTarget({ receipt, audible: false, pinned: false });
+  expect((await f.protect(true)).kind).toBe('ok'); expect(f.service.getStatus().phase).toBe('active');
+});
+test('only the affected target intent or verified explicit pause recovers a target fault', async () => {
+  const f = fixture(stored); await f.service.initialize(); await staleUnprotect(f);
+  const other = { ...receipt, tabId: 8, incognito: true }; f.setTarget({ receipt: other, audible: false, pinned: false });
+  expect((await f.protect(true, other)).kind).toBe('ok'); expect(f.service.getStatus().phase).toBe('unavailable');
+  await f.service.forget(8); expect(f.service.capture()).toBeUndefined();
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: true })).kind).toBe('unavailable');
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false })).kind).toBe('ok');
+  expect(f.service.getStatus().phase).toBe('paused');
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: true })).kind).toBe('ok');
+  expect(f.service.getStatus().phase).toBe('active');
+});
+test('fresh protection intent cannot clear global failed-pause authority, including after a rules save', async () => {
+  const f = fixture(); await f.service.initialize(); f.failConfigWrite(true);
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false })).kind).toBe('unavailable');
+  f.failConfigWrite(false);
+  expect((await f.service.handle({ kind: 'save-rules', expected: f.service.getStatus().version, baseRules: noRules, rules: newRules })).kind).toBe('ok');
+  expect((await f.protect(true)).kind).toBe('ok'); expect(f.service.getStatus().phase).toBe('unavailable');
+  expect(f.service.capture()).toBeUndefined(); expect(f.configRaw).toMatchObject({ enabled: true, ...newRules });
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: true })).kind).toBe('unavailable');
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false })).kind).toBe('ok');
+  expect(f.service.getStatus().phase).toBe('paused');
+  expect((await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: true })).kind).toBe('ok');
+  expect(f.service.getStatus().phase).toBe('active');
+});
+test('overlapping global and target faults require their own recovery evidence', async () => {
+  const f = fixture(stored); await f.service.initialize(); await staleUnprotect(f); f.failConfigWrite(true);
+  await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false });
+  f.failConfigWrite(false); await f.config.load(); f.setTarget({ receipt, audible: false, pinned: false });
+  expect((await f.protect(true)).kind).toBe('ok'); expect(f.service.capture()).toBeUndefined();
+  await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false }); expect(f.service.getStatus().phase).toBe('paused');
+});
+test('distinct target faults cannot be certified by one successful target command', async () => {
+  const f = fixture(stored); await f.service.initialize(); await staleUnprotect(f);
+  const other = { ...receipt, tabId: 8, incognito: true }; f.setTarget({ receipt: other, audible: false, pinned: false });
+  f.setWrite(async value => { f.setRaw(value); f.setTarget(undefined); });
+  expect((await f.protect(true, other)).kind).toBe('conflict');
+  f.setWrite(async value => { f.setRaw(value); }); f.setTarget({ receipt: other, audible: false, pinned: false });
+  expect((await f.protect(true, other)).kind).toBe('ok'); expect(f.service.capture()).toBeUndefined();
+  await f.service.handle({ kind: 'set-enabled', expected: f.service.getStatus().version, enabled: false }); expect(f.service.getStatus().phase).toBe('paused');
 });
