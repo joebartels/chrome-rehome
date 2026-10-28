@@ -17,6 +17,7 @@ The explicitly enabled production trial places the winning tab, retains its ID/h
 - [007a: Preserve existing duplicate placement](todo/007a-preserve-existing-placement.md) — complete; existing group/window wins over a grouping rule
 - [007b: Cross-window group reuse and foreground focus](todo/007b-cross-window-group-reuse-and-focus.md) — complete; [verification and Chrome trial](../reviews/2026-10-27-cross-window-group-reuse-completion.md)
 - [008: Pause controls and replacement protections](todo/008-pause-controls-and-replacement-protections.md) — complete; depends on 006, 007
+- [008a: Protect the right-clicked tab](todo/008a-tab-context-protection.md) — authorized follow-up; depends on008
 - [009: Real-browser feature regression suite](todo/009-real-browser-feature-regression-suite.md) — depends on 006, 007, 008
 - [010: Performance budgets and release readiness](todo/010-performance-budgets-and-release-readiness.md) — depends on 009
 - [011: Recent tabs across windows](todo/011-recent-tabs-popup.md) — future; extends 008 popup, not included in 008
