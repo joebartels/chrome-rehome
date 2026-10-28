@@ -1,5 +1,5 @@
 import { createStatusNotifier } from '../browser/control-status-hints';
-import { createControlTargets } from '../browser/control-target';
+import { createControlTargets, createNativeControlTargets } from '../browser/control-target';
 import { createChromeProtectionStorage } from '../browser/protection-storage';
 import { createProtectionRepository } from '../protections/repository';
 import { createControlService } from './controls';
@@ -26,6 +26,7 @@ const recovery = createRecovery({ journal, port });
 const config = createConfigRepository(createChromeConfigStorage(chrome));
 let recoveryInitialized = false;
 const controls = createControlService({ config, protections: createProtectionRepository(createChromeProtectionStorage(chrome)), targets: createControlTargets(chrome), workerId: crypto.randomUUID(),
+  nativeTargets: createNativeControlTargets(chrome), whenReady: (): Promise<void> => coordinator.initialize(),
   runtime: () => !recoveryInitialized ? 'checking' : recovery.isReady() ? 'ready' : 'blocked' });
 controls.subscribe(notifyStatus);
 const consume = createPlacementConsumer({ tracker, port, journal, diagnostics });

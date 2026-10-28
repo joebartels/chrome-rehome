@@ -1,21 +1,23 @@
 import type { createProtectionRepository } from '../protections/repository';
-import type { ControlTargets } from '../browser/control-target';
+import type { ControlTargets, NativeControlTargets, TargetObservation } from '../browser/control-target';
 import { isProtected, sameProtections } from '../protections/state';
 import type { createConfigRepository } from '../config/repository';
 import type { ConfigState } from '../config/schema';
-import { parseControlCommand, sameRules, type ControlCapture, type ControlReply, type ControlStatus, type TargetHint, type TabReceipt, type ProtectedIdentity } from '../controls/protocol';
+import { parseControlCommand, isTargetHint, sameRules, type ControlCapture, type ControlReply, type ControlStatus, type TargetHint, type TabReceipt, type ProtectedIdentity } from '../controls/protocol';
 import { createOperationQueue } from './operation-queue';
 
 type Dependencies = {
   config: ReturnType<typeof createConfigRepository>;
   protections: ReturnType<typeof createProtectionRepository>;
   targets: ControlTargets;
+  nativeTargets?: NativeControlTargets;
+  whenReady?(): Promise<void>;
   workerId: string;
   runtime(): 'checking' | 'ready' | 'blocked';
 };
 
 /** The sole production config/protection writer. This queue never waits for native operations. */
-export function createControlService({ config, protections, targets, workerId, runtime }: Dependencies) {
+export function createControlService({ config, protections, targets, nativeTargets, whenReady, workerId, runtime }: Dependencies) {
   const commands = createOperationQueue();
   const listeners = new Set<() => void>();
   let revision = 0;
@@ -31,6 +33,7 @@ export function createControlService({ config, protections, targets, workerId, r
   let state: ConfigState | undefined;
   let initialRead = false;
   let initialProtectionRead = false;
+  const nativeObservations = new Set<TargetObservation>();
   const protectionIntents = new Map<number, number>();
   function sameIdentity(a: ProtectedIdentity, b: ProtectedIdentity): boolean {
     return a.tabId === b.tabId && a.incognito === b.incognito;
@@ -109,6 +112,49 @@ export function createControlService({ config, protections, targets, workerId, r
     return captured.generation === generation && current?.revision === captured.configRevision &&
       current.state.kind === 'ready' && current.state.config === captured.config && getStatus().phase === 'active';
   }
+  function accept(target?: TargetHint) {
+    const acceptedRevision = ++revision;
+    if (target) protectionIntents.set(target.tabId, (protectionIntents.get(target.tabId) ?? 0) + 1);
+    ++pending;
+    invalidate();
+    return { revision: acceptedRevision, generation };
+  }
+  function finish(target?: TargetHint): void {
+    --pending;
+    if (target) {
+      const count = protectionIntents.get(target.tabId)! - 1;
+      if (count) protectionIntents.set(target.tabId, count); else protectionIntents.delete(target.tabId);
+    }
+    notify();
+  }
+  function setNativeTabProtected(target: TargetHint, protectedValue: boolean): Promise<ControlReply> {
+    if (!isTargetHint(target) || typeof protectedValue !== 'boolean') return Promise.resolve(reply('invalid'));
+    if (disposed || !nativeTargets) return Promise.resolve(reply('unavailable'));
+    const hint = Object.freeze({ ...target });
+    const capability = nativeTargets;
+    const observation = capability.observe(hint);
+    nativeObservations.add(observation);
+    const accepted = accept(hint);
+    // Observe and close admission synchronously. Recovery can wait for native work,
+    // so it must settle outside this writer to leave a newer Pause responsive.
+    return (async () => {
+      let result: ControlReply['kind'] = 'unavailable';
+      try {
+        await Promise.all([initialize(), whenReady?.()]);
+        result = await commands.run(async () => {
+          // Owned initial reads/pruning do not advance generation. Everything else
+          // keeps its original authority; readiness never freshens an abandoned click.
+          if (disposed || generation !== accepted.generation || !observation.isCurrent()) return 'conflict';
+          return setProtected({ target: hint, protected: protectedValue }, revision, capability, observation);
+        });
+      } catch { failProtection(hint); }
+      finally {
+        if (nativeObservations.delete(observation)) observation.dispose();
+        finish(hint);
+      }
+      return reply(result);
+    })();
+  }
   function handle(raw: unknown): Promise<ControlReply> {
     const command = parseControlCommand(raw);
     if (!command) return Promise.resolve(reply('invalid'));
@@ -120,17 +166,18 @@ export function createControlService({ config, protections, targets, workerId, r
     // Rule edits must never supersede a queued pause. Their baseline is checked in the writer queue.
     const ticket = command.kind === 'set-enabled' ? ++intent : intent;
     const cancelled = () => disposed || command.kind === 'set-enabled' && ticket !== intent;
-    const acceptedRevision = ++revision;
-    if (command.kind === 'set-tab-protected') protectionIntents.set(command.target.tabId, (protectionIntents.get(command.target.tabId) ?? 0) + 1);
-    ++pending;
-    invalidate();
+    const acceptedRevision = accept(command.kind === 'set-tab-protected' ? command.target : undefined).revision;
     return commands.run(async () => {
       const execute = async (): Promise<ControlReply['kind']> => {
         let result: ControlReply['kind'] = 'unavailable';
         try {
           await initialize();
           if (cancelled()) return 'conflict';
-          if (command.kind === 'set-tab-protected') return await setProtected(command, acceptedRevision);
+          if (command.kind === 'set-tab-protected') {
+            const observation = targets.observe(command.target);
+            try { return await setProtected(command, acceptedRevision, targets, observation, command.target); }
+            finally { observation.dispose(); }
+          }
           if (command.kind === 'set-enabled' && command.enabled) {
             if (revision !== acceptedRevision) return 'conflict';
             if (runtime() !== 'ready' || configFailed || protectionFailure !== undefined || protectionStartupFailed || protections.getCurrent()?.state.kind !== 'ready') return 'unavailable';
@@ -169,12 +216,7 @@ export function createControlService({ config, protections, targets, workerId, r
       };
       let result: ControlReply['kind'];
       try { result = await execute(); } finally {
-        --pending;
-        if (command.kind === 'set-tab-protected') {
-          const count = protectionIntents.get(command.target.tabId)! - 1;
-          if (count) protectionIntents.set(command.target.tabId, count); else protectionIntents.delete(command.target.tabId);
-        }
-        notify();
+        finish(command.kind === 'set-tab-protected' ? command.target : undefined);
       }
       return reply(result);
     });
@@ -190,38 +232,36 @@ export function createControlService({ config, protections, targets, workerId, r
     return Object.freeze({ kind: 'ok', status: Object.freeze({ ...getStatus(), target: Object.freeze({ ...target,
       protected: isProtected({ id: hint.tabId, incognito: hint.incognito }, protection.state.value.tabs) }) }) });
   }
-  async function setProtected(command: Extract<NonNullable<ReturnType<typeof parseControlCommand>>, { kind: 'set-tab-protected' }>, acceptedRevision: number): Promise<ControlReply['kind']> {
+  async function setProtected(command: { target: TargetHint; protected: boolean }, acceptedRevision: number, capability: NativeControlTargets, observation: TargetObservation, expectedReceipt?: TabReceipt): Promise<ControlReply['kind']> {
     if (!command.protected && revision !== acceptedRevision) return 'conflict';
     const configured = config.getCurrent();
     const current = protections.getCurrent();
     if (configured?.state.kind !== 'ready' || current?.state.kind !== 'ready' || protectionStartupFailed || runtime() !== 'ready') return 'unavailable';
     const authority = generation;
     const hint = { tabId: command.target.tabId, windowId: command.target.windowId, incognito: command.target.incognito };
-    const observation = targets.observe(hint);
-    try {
-      const target = await targets.read(hint);
-      if (!observation.isCurrent() || disposed || generation !== authority || !sameReceipt(target?.receipt, command.target)) return 'conflict';
-      if (runtime() !== 'ready') return 'unavailable';
-      const previous = current.state.value;
-      // An identity in another privacy context is never transferred to the new context.
-      if (previous.tabs.some(tab => tab.tabId === command.target.tabId && tab.incognito !== command.target.incognito)) return 'conflict';
-      const others = previous.tabs.filter(tab => tab.tabId !== command.target.tabId);
-      const value = { version: 1 as const, tabs: command.protected ? [...others, { tabId: command.target.tabId, incognito: command.target.incognito }] : others };
-      if (value.tabs.length > 1000) return 'unavailable';
-      const beforeWrite = generation;
-      const written = await protections.save(value);
-      const afterWrite = protections.getCurrent();
-      if (written.kind !== 'ready' || afterWrite?.state.kind !== 'ready' || !sameProtections(afterWrite.state.value, value)) { failProtection(command.target); return 'unavailable'; }
-      const settledGeneration = generation;
-      const verified = await targets.read(hint);
-      // Our save advances generation once. Any additional event or newer intent conflicts.
-      if (!observation.isCurrent() || disposed || settledGeneration !== beforeWrite + 1 || generation !== settledGeneration || !sameReceipt(verified?.receipt, command.target)) {
-        failProtection(command.target); return 'conflict';
-      }
-      if (runtime() !== 'ready') { failProtection(command.target); return 'unavailable'; }
-      if (protectionFailure !== 'pause-required' && protectionFailure && sameIdentity(protectionFailure, command.target)) protectionFailure = undefined;
-      return 'ok';
-    } finally { observation.dispose(); }
+    const target = await capability.read(hint);
+    const receipt = expectedReceipt ?? target?.receipt;
+    if (!observation.isCurrent() || disposed || generation !== authority || !receipt || !sameReceipt(target?.receipt, { ...hint, documentId: receipt.documentId })) return 'conflict';
+    if (runtime() !== 'ready') return 'unavailable';
+    const previous = current.state.value;
+    // An identity in another privacy context is never transferred to the new context.
+    if (previous.tabs.some(tab => tab.tabId === command.target.tabId && tab.incognito !== command.target.incognito)) return 'conflict';
+    const others = previous.tabs.filter(tab => tab.tabId !== command.target.tabId);
+    const value = { version: 1 as const, tabs: command.protected ? [...others, { tabId: command.target.tabId, incognito: command.target.incognito }] : others };
+    if (value.tabs.length > 1000) return 'unavailable';
+    const beforeWrite = generation;
+    const written = await protections.save(value);
+    const afterWrite = protections.getCurrent();
+    if (written.kind !== 'ready' || afterWrite?.state.kind !== 'ready' || !sameProtections(afterWrite.state.value, value)) { failProtection(command.target); return 'unavailable'; }
+    const settledGeneration = generation;
+    const verified = await capability.read(hint);
+    // Our save advances generation once. Any additional event or newer intent conflicts.
+    if (!observation.isCurrent() || disposed || settledGeneration !== beforeWrite + 1 || generation !== settledGeneration || !sameReceipt(verified?.receipt, receipt)) {
+      failProtection(command.target); return 'conflict';
+    }
+    if (runtime() !== 'ready') { failProtection(command.target); return 'unavailable'; }
+    if (protectionFailure !== 'pause-required' && protectionFailure && sameIdentity(protectionFailure, command.target)) protectionFailure = undefined;
+    return 'ok';
   }
   function forget(tabId: number): Promise<void> {
     const known = protections.getLastKnown();
@@ -240,11 +280,11 @@ export function createControlService({ config, protections, targets, workerId, r
     });
   }
   return {
-    initialize, getStatus, handle, capture, isCurrent, invalidate,
+    initialize, getStatus, handle, setNativeTabProtected, capture, isCurrent, invalidate,
     get generation(): number { return generation; },
     // The navigation tracker owns removal leases; unprotected removals do not revoke controls.
     forget,
     subscribe(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    dispose(): void { if (disposed) return; disposed = true; ++intent; invalidate(); unsubscribe(); unsubscribeInvalidation(); unsubscribeProtection(); unsubscribeProtectionInvalidation(); protections.dispose(); listeners.clear(); }
+    dispose(): void { if (disposed) return; disposed = true; ++intent; for (const observation of nativeObservations) observation.dispose(); nativeObservations.clear(); invalidate(); unsubscribe(); unsubscribeInvalidation(); unsubscribeProtection(); unsubscribeProtectionInvalidation(); protections.dispose(); listeners.clear(); }
   };
 }

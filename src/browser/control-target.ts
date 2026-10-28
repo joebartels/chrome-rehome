@@ -5,12 +5,21 @@ export type ControlTargets = {
   read(hint: TargetHint): Promise<TargetSnapshot | undefined>;
   list(): Promise<readonly ProtectedIdentity[]>;
 };
-export function createControlTargets(api: Pick<typeof chrome, 'tabs' | 'webNavigation'>): ControlTargets {
-  async function selected(hint: TargetHint) {
-    const tabs = await api.tabs.query({ windowId: hint.windowId, active: true });
+export type NativeControlTargets = Pick<ControlTargets, 'observe' | 'read'>;
+type TargetApi = Pick<typeof chrome, 'tabs' | 'webNavigation'>;
+export function createControlTargets(api: TargetApi): ControlTargets {
+  return createTargets(api, true);
+}
+export function createNativeControlTargets(api: TargetApi): NativeControlTargets {
+  const { observe, read } = createTargets(api, false);
+  return { observe, read };
+}
+function createTargets(api: TargetApi, requireSelection: boolean): ControlTargets {
+  async function readTab(hint: TargetHint) {
+    const tabs = requireSelection ? await api.tabs.query({ windowId: hint.windowId, active: true }) : [await api.tabs.get(hint.tabId)];
     if (tabs.length !== 1) return;
     const tab = tabs[0]!;
-    return tab.id === hint.tabId && tab.windowId === hint.windowId && tab.incognito === hint.incognito && tab.active && !('pendingUrl' in tab) ? tab : undefined;
+    return tab && tab.id === hint.tabId && tab.windowId === hint.windowId && tab.incognito === hint.incognito && (!requireSelection || tab.active) && !('pendingUrl' in tab) ? tab : undefined;
   }
   // This evidence belongs only to this read/command; it never revokes automatic work.
   function observe(hint: TargetHint): TargetObservation {
@@ -23,7 +32,7 @@ export function createControlTargets(api: Pick<typeof chrome, 'tabs' | 'webNavig
     const invalidateFrame = (details: { tabId: number; frameId: number }) => { if (details.frameId === 0) invalidateTab(details.tabId); };
     const dispose = () => { current = false; for (const off of remove.splice(0)) off(); };
     try {
-      listen(api.tabs.onActivated, info => { if (info.windowId === hint.windowId) current = false; });
+      if (requireSelection) listen(api.tabs.onActivated, info => { if (info.windowId === hint.windowId) current = false; });
       listen(api.tabs.onAttached, invalidateTab);
       listen(api.tabs.onDetached, invalidateTab);
       listen(api.tabs.onRemoved, invalidateTab);
@@ -51,15 +60,15 @@ export function createControlTargets(api: Pick<typeof chrome, 'tabs' | 'webNavig
       if (!isTargetHint(hint)) return;
       const observation = observe(hint);
       try {
-        const tab = await selected(hint);
+        const tab = await readTab(hint);
         if (!tab) return;
         const frame = await api.webNavigation.getFrame({ tabId: hint.tabId, frameId: 0 });
         if (!frame || frame.documentLifecycle !== 'active' || frame.frameType !== 'outermost_frame'
           || frame.parentFrameId !== -1 || frame.errorOccurred || frame.url !== tab.url) return;
-        const latest = await selected(hint);
+        const latest = await readTab(hint);
         if (!latest || latest.url !== frame.url) return;
-        // A second document read detects replacement during the selection await. The
-        // observation also spans this final await, including selection leave-and-return.
+        // A second document read detects replacement during the tab await. The
+        // observation also spans this final await, including selection leave-and-return for popup targets.
         const finalFrame = await api.webNavigation.getFrame({ tabId: hint.tabId, frameId: 0 });
         if (!observation.isCurrent() || !finalFrame || finalFrame.documentId !== frame.documentId
           || finalFrame.documentLifecycle !== 'active' || finalFrame.frameType !== 'outermost_frame'

@@ -44,3 +44,14 @@ test('real target adapter accepts protection commands carrying a document receip
   const result = await service.handle({ kind: 'set-tab-protected', expected: status.status.version, target: status.status.target!.receipt, protected: true });
   expect(result.kind).toBe('ok'); expect(registry.raw).toEqual({ version: 1, tabs: [{ tabId: 7, incognito: false }] });
 });
+
+
+test('native by-ID target accepts an inactive tab without weakening popup selection', async () => {
+  const { createNativeControlTargets } = await import('../../src/browser/control-target');
+  expect(createNativeControlTargets).toBeTypeOf('function');
+  const f = fixture(); f.tab = { ...f.tab, active: false };
+  const native = createNativeControlTargets(f.api);
+  expect(await native.read(hint)).toEqual({ receipt: { ...hint, documentId: 'doc' }, audible: false, pinned: false });
+  expect(f.gets).toEqual([7, 7]); expect(f.queries).toEqual([]);
+  expect(await f.port.read(hint)).toBeUndefined(); expect(f.listeners()).toBe(0);
+});

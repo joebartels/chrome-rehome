@@ -66,3 +66,36 @@ test('observer cleanup survives rejected document reads', async () => {
   const f = await fixture(); f.boundary(async kind => { if (kind === 'document') throw Error('unavailable'); });
   expect((await f.service.handle({ kind: 'get-status', target: hint })).status.target).toBeUndefined(); expect(f.listeners()).toBe(0);
 });
+
+
+for (const boundary of ['tab', 'document'] as const) for (const occurrence of [1, 2]) {
+  test.each(['removed', 'replacement', 'reload', 'window', 'context', 'pinned', 'audible'])(`native ${boundary} read ${occurrence} rejects observed %s and disposes listeners`, async change => {
+    const { createNativeControlTargets } = await import('../../src/browser/control-target');
+    expect(createNativeControlTargets).toBeTypeOf('function');
+    const f = targetFixture(); const native = createNativeControlTargets(f.api); let count = 0;
+    f.boundary(async kind => {
+      if (kind !== boundary || ++count !== occurrence) return;
+      if (change === 'removed') { f.tab = undefined; f.tabs.onRemoved.emit(7, { windowId: 10 }); }
+      if (change === 'replacement') f.tabs.onReplaced.emit(8, 7);
+      if (change === 'reload') { f.frame = { ...f.frame, documentId: 'new' }; f.navigation.onCommitted.emit({ tabId: 7, frameId: 0 }); }
+      if (change === 'window' || change === 'context') { f.tab = { ...f.tab, windowId: 11, incognito: change === 'context' }; f.tabs.onDetached.emit(7, { oldWindowId: 10 }); }
+      if (change === 'pinned' || change === 'audible') f.tabs.onUpdated.emit(7, { [change]: true });
+    });
+    expect(await native.read(hint)).toBeUndefined(); expect(f.listeners()).toBe(0);
+  });
+}
+test('native by-ID document reread rejects silent same-URL replacement and ignores selection leave/return', async () => {
+  const { createNativeControlTargets } = await import('../../src/browser/control-target');
+  expect(createNativeControlTargets).toBeTypeOf('function');
+  const f = targetFixture(); const native = createNativeControlTargets(f.api); let count = 0;
+  f.boundary(async kind => { f.tabs.onActivated.emit({ tabId: 8, windowId: 10 }); f.tabs.onActivated.emit({ tabId: 7, windowId: 10 }); });
+  expect(await native.read(hint)).toBeDefined();
+  f.boundary(async kind => { if (kind === 'tab' && ++count === 2) f.frame = { ...f.frame, documentId: 'new' }; });
+  expect(await native.read(hint)).toBeUndefined(); expect(f.listeners()).toBe(0);
+});
+test.each(['tab', 'document'] as const)('native rejected %s lookup releases every observation', async boundary => {
+  const { createNativeControlTargets } = await import('../../src/browser/control-target');
+  expect(createNativeControlTargets).toBeTypeOf('function');
+  const f = targetFixture(); f.boundary(async kind => { if (kind === boundary) throw Error('closed'); });
+  expect(await createNativeControlTargets(f.api).read(hint)).toBeUndefined(); expect(f.listeners()).toBe(0);
+});
