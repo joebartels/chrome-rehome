@@ -14,8 +14,10 @@ describe('package policy', () => {
     const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('files');
   });
   it.each([
+    { permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation'] },
+    { permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation', 'contextMenus', 'contextMenus'] },
     { version: '0.0.0' }, { version: '99999.1.0' }, { version: '01.1.0' },
-    { permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation', 'debugger'] },
+    { permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation', 'contextMenus', 'debugger'] },
     { host_permissions: ['<all_urls>'] }, { content_scripts: [] }, { action: { default_popup: 'options/index.html' } },
     { background: { service_worker: 'background/index.js' } }, { minimum_chrome_version: '119' },
     { options_ui: { page: 'options/index.html', open_in_tab: false } },

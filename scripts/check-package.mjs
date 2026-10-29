@@ -59,7 +59,7 @@ function checkManifest(manifest) {
   const version = typeof manifest.version === 'string' ? manifest.version.split('.') : [];
   const validVersion = version.length === 3 && version.every((part) => /^(0|[1-9]\d*)$/.test(part) && Number(part) <= 65535) && version.some((part) => Number(part) > 0);
   if (!same(Object.keys(manifest).sort(), keys.sort()) || manifest.manifest_version !== 3 || manifest.name !== 'ChromeReHome' || !validVersion || manifest.minimum_chrome_version !== '120' ||
-    !same([...manifest.permissions ?? []].sort(), ['tabs', 'tabGroups', 'storage', 'webNavigation'].sort()) ||
+    !same([...manifest.permissions ?? []].sort(), ['tabs', 'tabGroups', 'storage', 'webNavigation', 'contextMenus'].sort()) ||
     !same(manifest.background, { service_worker: 'background/index.js', type: 'module' }) ||
     !same(manifest.action, { default_popup: 'popup/index.html' }) ||
     !same(manifest.options_ui, { page: 'options/index.html', open_in_tab: true })) fail('manifest', 'unexpected fields, permissions, version or entry points');

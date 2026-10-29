@@ -169,19 +169,27 @@ describe('worker event registration', () => {
     let sessionRead!: () => void;
     const sessionStarted = new Promise<void>(resolve => { sessionRead = resolve; });
     fake.storage.session.get.mockImplementation(async () => {
-      for (const group of [fake.webNavigation, fake.tabs, fake.runtime]) {
+      for (const group of [fake.webNavigation, fake.tabs]) {
         for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
       }
+      expect(menuClicks.listeners.size).toBe(1);
+      expect(fake.runtime.onStartup.listeners.size).toBe(2);
+      expect(fake.runtime.onInstalled.listeners.size).toBe(2);
       sessionRead();
       return {};
     });
+    const menuClicks = event<Parameters<typeof chrome.contextMenus.onClicked.addListener>[0]>();
+    const contextMenus = { onClicked: menuClicks, update: vi.fn((_id, _properties, callback) => callback()), create: vi.fn(), remove: vi.fn() };
     const messages = event<Parameters<typeof chrome.runtime.onMessage.addListener>[0]>();
-    vi.stubGlobal('chrome', { ...fake, runtime: { ...fake.runtime, sendMessage: vi.fn(async () => {}), id: 'self',
+    vi.stubGlobal('chrome', { ...fake, contextMenus, runtime: { ...fake.runtime, sendMessage: vi.fn(async () => {}), id: 'self',
       getURL: (path: string) => `chrome-extension://self/${path}`, onMessage: messages } });
     await import('../../src/background/index');
     expect(messages.listeners.size).toBe(1);
+    expect(menuClicks.listeners.size).toBe(1);
+    expect(fake.runtime.onStartup.listeners.size).toBe(2);
+    expect(fake.runtime.onInstalled.listeners.size).toBe(2);
     await sessionStarted;
-    for (const group of [fake.webNavigation, fake.tabs, fake.runtime]) {
+    for (const group of [fake.webNavigation, fake.tabs]) {
       for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
     }
     expect(fake.storage.local.get).toHaveBeenCalledTimes(1);

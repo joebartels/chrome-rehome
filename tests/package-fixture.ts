@@ -12,7 +12,7 @@ export function fixture() {
     mkdirSync(dirname(join(root, name)), { recursive: true });
     writeFileSync(join(root, name), typeof value === 'string' ? value : JSON.stringify(value));
   };
-  const manifest = { manifest_version: 3, name: 'ChromeReHome', version: '0.1.0', minimum_chrome_version: '120', permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation'], background: { service_worker: 'background/index.js', type: 'module' }, action: { default_popup: 'popup/index.html' }, options_ui: { page: 'options/index.html', open_in_tab: true } };
+  const manifest = { manifest_version: 3, name: 'ChromeReHome', version: '0.1.0', minimum_chrome_version: '120', permissions: ['tabs', 'tabGroups', 'storage', 'webNavigation', 'contextMenus'], background: { service_worker: 'background/index.js', type: 'module' }, action: { default_popup: 'popup/index.html' }, options_ui: { page: 'options/index.html', open_in_tab: true } };
   write('dist/manifest.json', manifest);
   write('dist/background/index.js', 'const worker = true;');
   write('dist/options/index.js', 'const options = true;');
