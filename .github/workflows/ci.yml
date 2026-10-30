@@ -1,13 +1,13 @@
-name: Foundation checks
+name: Feature regression checks
 on:
   push:
   pull_request:
 permissions:
   contents: read
 jobs:
-  foundation:
+  regression:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,10 +20,20 @@ jobs:
       - run: npm run build
       - run: npm run check:package
       - run: npx playwright install --with-deps chromium
-      - run: npm run test:browser
+      - name: Portable and headed browser regressions under Xvfb
+        shell: bash
+        run: |
+          mkdir -p browser-reports
+          set -o pipefail
+          PLAYWRIGHT_JSON_OUTPUT_NAME=browser-reports/results.json xvfb-run --auto-servernum npm run test:browser -- --project=portable --project=headed --reporter=list,json 2>&1 | tee browser-reports/run.log
+      - name: Require nonempty passing browser projects without skips or retries
+        if: always()
+        run: npm run check:browser-results -- browser-reports/results.json portable headed
       - uses: actions/upload-artifact@v4
-        if: failure()
+        if: always()
         with:
-          name: browser-test-results
-          path: test-results/
+          name: browser-regression-results
+          path: |
+            browser-reports/
+            test-results/
           retention-days: 7

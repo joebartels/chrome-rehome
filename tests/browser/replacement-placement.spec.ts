@@ -8,7 +8,12 @@ import { join, resolve } from 'node:path';
 let origin: string;
 let server: ReturnType<typeof createServer>;
 test.beforeAll(async () => {
-  server = createServer((_req, res) => {
+  server = createServer((req, res) => {
+    if (req.url === '/redirect') {
+      res.writeHead(302, { location: '/target' });
+      res.end();
+      return;
+    }
     res.writeHead(200, { 'content-type': 'text/html' });
     res.end('<title>Placement trial</title><a href="/target">Navigate</a><button id="tone">Start audio</button><button id="history">History target</button><script>document.querySelector("#tone").onclick=()=>{const c=new AudioContext();const o=c.createOscillator();o.connect(c.destination);o.start();window.audio=c;};document.querySelector("#history").onclick=()=>history.pushState({},"","/target");</script>');
   });
@@ -304,8 +309,8 @@ test('production grouping-only reuses remote Group A without a competing source 
 
 for (const destination of ['rule','manual','ungrouped'] as const) {
   for (const background of [false,true]) {
-    test(`native production remote ${destination} ${background?'Cmd-click background':'foreground click'} attention`,async({},info)=>{
-      test.skip(process.platform!=='darwin','Requires macOS headed native focus and Cmd-click.');
+    test(`native production remote ${destination} ${background?'Cmd-click background':'foreground click'} attention`, { tag: '@native-macos' },async({},info)=>{
+
       await fixture(async(context,options)=>{
         const anchor=await context.newPage();await anchor.goto(origin+(destination==='rule'?'/member':'/target'));const anchorId=await id(options,anchor);
         const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
@@ -352,8 +357,8 @@ for (const destination of ['rule','manual','ungrouped'] as const) {
   }
 }
 
-test('native production restores minimized remote destination through focused true',async({},info)=>{
-  test.skip(process.platform!=='darwin','Requires macOS headed native minimized-window focus.');
+test('native production restores minimized remote destination through focused true', { tag: '@native-macos' },async({},info)=>{
+
   await fixture(async(context,options)=>{
     const member=await context.newPage();await member.goto(origin+'/member');const memberId=await id(options,member);
     const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
@@ -371,8 +376,8 @@ test('native production restores minimized remote destination through focused tr
   },true);
 });
 
-test('native production foreground transfer from lone source closes source and presents destination',async({},info)=>{
-  test.skip(process.platform!=='darwin','Requires macOS headed native window disappearance.');
+test('native production foreground transfer from lone source closes source and presents destination', { tag: '@native-macos' },async({},info)=>{
+
   await fixture(async(context,options)=>{
     const member=await context.newPage();await member.goto(origin+'/member');const memberId=await id(options,member);
     const source=await context.newPage();await source.goto(origin+'/before');const sourceId=await id(options,source);
@@ -404,7 +409,7 @@ async function protection(options: Page, tabId: number, value: boolean) {
   }, { tabId, value });
 }
 for (const protectedTab of ['winner', 'anchor', 'other'] as const) {
-  test(`production session protection on ${protectedTab} retains duplicates and native manual placement`, async ({}, info) => fixture(async (context, options) => {
+  test(`production session protection on ${protectedTab} retains duplicates and native manual placement`, { tag: '@headed' }, async ({}, info) => fixture(async (context, options) => {
     const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
     const other = await context.newPage(); await other.goto(origin + '/other'); const otherId = await id(options, other);
     await other.goto(origin + '/target');
@@ -427,7 +432,7 @@ for (const protectedTab of ['winner', 'anchor', 'other'] as const) {
     expect((await protection(options, selectedId, false)).kind).toBe('ok');
   }, true, false));
 }
-test('production session protection survives navigation reload and worker restart and ends on close', async ({}, info) => fixture(async (context, options) => {
+test('production session protection survives navigation reload and worker restart and ends on close', { tag: '@headed' }, async ({}, info) => fixture(async (context, options) => {
   const winner = await context.newPage(); await winner.goto(origin + '/before'); const winnerId = await id(options, winner);
   expect((await protection(options, winnerId, true)).kind).toBe('ok'); await config(options, 'Work');
   await winner.getByRole('link').click(); await winner.reload();
@@ -447,7 +452,7 @@ test('production session protection survives navigation reload and worker restar
     await saveProtectionEvidence(info, 'session-lifetime', { version: context.browser()!.version(), winnerId, before, after: await options.evaluate(() => chrome.storage.session.get('chromeReHomeProtections')) });
   } finally { await cdp.detach(); }
 }, true, false));
-test('production audible older anchor retains every duplicate while placing the silent winner', async ({}, info) => fixture(async (context, options) => {
+test('production audible older anchor retains every duplicate while placing the silent winner', { tag: '@headed' }, async ({}, info) => fixture(async (context, options) => {
   const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
   const other = await context.newPage(); await other.goto(origin + '/other'); const otherId = await id(options, other); await other.goto(origin + '/target');
   const winner = await context.newPage(); await winner.goto(origin + '/before'); const winnerId = await id(options, winner);
@@ -459,7 +464,7 @@ test('production audible older anchor retains every duplicate while placing the 
   const after = await tabs(options); expect(after.some(t => t.id === anchorId)).toBe(true); expect(after.some(t => t.id === otherId)).toBe(true);
   await saveProtectionEvidence(info, 'audible-anchor', { version: context.browser()!.version(), winnerId, anchorId, otherId, groupId, after });
 }, true, false));
-test('production audible incoming same-document navigation skips automatic placement', async ({}, info) => fixture(async (context, options) => {
+test('production audible incoming same-document navigation skips automatic placement', { tag: '@headed' }, async ({}, info) => fixture(async (context, options) => {
   const winner = await context.newPage(); await winner.goto(origin + '/seed'); await winner.getByRole('link').click();
   await winner.evaluate(() => history.pushState({}, '', '/before')); const winnerId = await id(options, winner);
   const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
@@ -470,3 +475,128 @@ test('production audible incoming same-document navigation skips automatic place
   const after = await tabs(options); expect(after.find(t => t.id === winnerId)?.groupId).toBe(-1); expect(after.some(t => t.id === anchorId)).toBe(true);
   await saveProtectionEvidence(info, 'audible-winner', { version: context.browser()!.version(), winnerId, anchorId, after });
 }, true, false));
+
+
+// Read actual browser event metadata from the options document; dist is never instrumented.
+type PackagedNavigationTrace = {
+  kind: 'committed' | 'history'; tabId: number; frameId: number; url: string;
+  documentId: string; documentLifecycle: string; frameType: string;
+  transitionType: string; transitionQualifiers: string[];
+};
+async function observePackagedNavigation(options: Page) {
+  await options.evaluate(() => {
+    const trace: unknown[] = [];
+    (globalThis as unknown as { packagedNavigationTrace: unknown[] }).packagedNavigationTrace = trace;
+    chrome.webNavigation.onCommitted.addListener(event => trace.push({ ...event, kind: 'committed' }));
+    chrome.webNavigation.onHistoryStateUpdated.addListener(event => trace.push({ ...event, kind: 'history' }));
+  });
+}
+async function packagedNavigation(options: Page) {
+  return options.evaluate(() => (globalThis as unknown as { packagedNavigationTrace: PackagedNavigationTrace[] }).packagedNavigationTrace);
+}
+for (const trigger of ['CDP typed transition', 'changed-URL pushState', 'ordinary HTTP redirect'] as const) {
+  test(`production ${trigger} retains incoming identity and history with duplicate manual precedence`, async ({}, info) => fixture(async (context, options) => {
+    await observePackagedNavigation(options);
+    const anchor = await context.newPage(); await anchor.goto(origin + '/target'); const anchorId = await id(options, anchor);
+    const member = await context.newPage(); await member.goto(origin + '/manual-member'); const memberId = await id(options, member);
+    const spare = await context.newPage(); await spare.goto(origin + '/unrelated'); const spareId = await id(options, spare);
+    const groups = await options.evaluate(async ({ anchorId, memberId, spareId }) => {
+      const manual = await chrome.tabs.group({ tabIds: [anchorId, memberId] });
+      await chrome.tabGroups.update(manual, { title: 'Manual anchor', color: 'purple' });
+      const competing = await chrome.tabs.group({ tabIds: [spareId] });
+      await chrome.tabGroups.update(competing, { title: 'Configured', color: 'green' });
+      return { manual, competing };
+    }, { anchorId, memberId, spareId });
+    const incoming = await context.newPage(); await incoming.goto(origin + '/before'); const incomingId = await id(options, incoming);
+    await options.evaluate(id => chrome.tabs.update(id, { active: true }), incomingId);
+    const before = await tabs(options); const anchorBefore = before.find(t => t.id === anchorId)!;
+    const incomingBefore = before.find(t => t.id === incomingId)!;
+    const sourceDocument = (await packagedNavigation(options)).find(e => e.tabId === incomingId && e.url === origin + '/before')!.documentId;
+    await config(options, 'Configured');
+    if (trigger === 'CDP typed transition') {
+      // Address-bar-style CDP stimulus; this does not claim trusted omnibox input.
+      const cdp = await context.newCDPSession(incoming);
+      try { await cdp.send('Page.navigate', { url: origin + '/target', transitionType: 'typed' }); }
+      finally { await cdp.detach(); }
+    } else if (trigger === 'changed-URL pushState') {
+      await incoming.getByRole('button', { name: 'History target' }).click();
+    } else {
+      await incoming.getByRole('link').evaluate(a => a.setAttribute('href', '/redirect'));
+      await incoming.getByRole('link').click();
+    }
+    await incoming.waitForURL(origin + '/target');
+    await expect.poll(async () => (await tabs(options)).some(t => t.id === anchorId)).toBe(false);
+    const after = await tabs(options); const retained = after.find(t => t.id === incomingId)!;
+    expect(retained).toMatchObject({ url: origin + '/target', windowId: anchorBefore.windowId, groupId: groups.manual,
+      index: anchorBefore.index - (incomingBefore.index < anchorBefore.index ? 1 : 0) });
+    await retain(options, before.filter(t => t.id !== anchorId).map(t => t.id!));
+    expect(after.filter(t => t.id !== incomingId).map(t => t.id)).toEqual(before.filter(t => t.id !== incomingId && t.id !== anchorId).map(t => t.id));
+    expect(after.filter(t => t.id !== incomingId).map(t => ({ id: t.id, windowId: t.windowId, groupId: t.groupId, pinned: t.pinned, url: t.url })))
+      .toEqual(before.filter(t => t.id !== incomingId && t.id !== anchorId).map(t => ({ id: t.id, windowId: t.windowId, groupId: t.groupId, pinned: t.pinned, url: t.url })));
+    expect(await options.evaluate(id => chrome.tabGroups.get(id).then(g => ({ title: g.title, color: g.color })), groups.competing)).toEqual({ title: 'Configured', color: 'green' });
+    expect(await options.evaluate(id => chrome.tabGroups.get(id).then(g => g.title), retained.groupId)).toBe('Manual anchor');
+    const kind = trigger === 'changed-URL pushState' ? 'history' : 'committed';
+    await expect.poll(async () => (await packagedNavigation(options)).find(e => e.tabId === incomingId && e.url === origin + '/target' && e.kind === kind)).toBeTruthy();
+    const event = (await packagedNavigation(options)).find(e => e.tabId === incomingId && e.url === origin + '/target' && e.kind === kind)!;
+    expect(event).toMatchObject({ frameId: 0, documentLifecycle: 'active', frameType: 'outermost_frame' });
+    expect(event.documentId).toBeTruthy();
+    if (trigger === 'CDP typed transition') expect(event.transitionType).toBe('typed');
+    else if (trigger === 'changed-URL pushState') expect(event.documentId).toBe(sourceDocument);
+    else { expect(event.transitionType).toBe('link'); expect(event.transitionQualifiers).toContain('server_redirect'); }
+    await saveProtectionEvidence(info, 'packaged-navigation', { browser: context.browser()!.version(), trigger, incomingId, anchorId, before, after, event });
+    await config(options, undefined, false);
+    await incoming.goBack(); expect(incoming.url()).toBe(origin + '/before');
+    expect((await tabs(options)).find(t => t.id === incomingId)?.url).toBe(origin + '/before');
+    await incoming.goForward(); expect(incoming.url()).toBe(origin + '/target');
+  }));
+}
+
+test('production pinned incoming retains exact order and groups without closing older duplicates', async ({}, info) => fixture(async (context, options) => {
+  const anchor = await context.newPage(); await anchor.goto(origin + '/anchor-before'); const anchorId = await id(options, anchor); await anchor.goto(origin + '/target');
+  const older = await context.newPage(); await older.goto(origin + '/older-before'); const olderId = await id(options, older); await older.goto(origin + '/target');
+  const manual = await options.evaluate(async ids => { const group = await chrome.tabs.group({ tabIds: [ids[0]!, ids[1]!] }); await chrome.tabGroups.update(group, { title: 'Manual' }); return group; }, [anchorId, olderId]);
+  const incoming = await context.newPage(); await incoming.goto(origin + '/before'); const incomingId = await id(options, incoming);
+  await options.evaluate(id => chrome.tabs.update(id, { pinned: true, active: true }), incomingId);
+  const spare = await context.newPage(); await spare.goto(origin + '/unrelated');
+  // A later admitted unique navigation completes real grouping after the excluded navigation.
+  const barrier = await context.newPage(); await barrier.goto(origin + '/barrier-before'); const barrierId = await id(options, barrier);
+  const before = await tabs(options);
+  await config(options, 'Configured');
+  await incoming.getByRole('link').click(); await incoming.waitForURL(origin + '/target');
+  await barrier.goto(origin + '/barrier-complete');
+  await expect.poll(async () => (await tabs(options)).find(t => t.id === barrierId)?.groupId).not.toBe(-1);
+  const after = await tabs(options);
+  await retain(options, before.map(t => t.id!));
+  expect(after.map(t => t.id)).toEqual(before.map(t => t.id));
+  expect(after.find(t => t.id === incomingId)).toMatchObject({ pinned: true, groupId: -1, index: 0, url: origin + '/target', windowId: before.find(t => t.id === incomingId)!.windowId });
+  expect(after.filter(t => t.id !== incomingId && t.id !== barrierId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })))
+    .toEqual(before.filter(t => t.id !== incomingId && t.id !== barrierId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })));
+  expect(after.filter(t => t.url === origin + '/target').map(t => t.id)).toEqual([incomingId, anchorId, olderId]);
+  expect(after.filter(t => t.groupId === manual).map(t => t.id)).toEqual([anchorId, olderId]);
+  await saveProtectionEvidence(info, 'pinned-incoming', { browser: context.browser()!.version(), incomingId, anchorId, olderId, before, after });
+}));
+
+test('production pinned older duplicate is excluded while eligible duplicates supply manual placement and close', async ({}, info) => fixture(async (context, options) => {
+  const pinned = await context.newPage(); await pinned.goto(origin + '/target'); const pinnedId = await id(options, pinned);
+  await options.evaluate(id => chrome.tabs.update(id, { pinned: true }), pinnedId);
+  const anchor = await context.newPage(); await anchor.goto(origin + '/anchor-before'); const anchorId = await id(options, anchor); await anchor.goto(origin + '/target');
+  const member = await context.newPage(); await member.goto(origin + '/manual-member'); const memberId = await id(options, member);
+  const manual = await options.evaluate(async ids => { const group = await chrome.tabs.group({ tabIds: [ids[0]!, ids[1]!] }); await chrome.tabGroups.update(group, { title: 'Eligible manual' }); return group; }, [anchorId, memberId]);
+  const other = await context.newPage(); await other.goto(origin + '/other-before'); const otherId = await id(options, other); await other.goto(origin + '/target');
+  const spare = await context.newPage(); await spare.goto(origin + '/unrelated');
+  const incoming = await context.newPage(); await incoming.goto(origin + '/before'); const incomingId = await id(options, incoming);
+  const before = await tabs(options); const anchorBefore = before.find(t => t.id === anchorId)!;
+  await config(options, 'Configured'); await incoming.getByRole('link').click();
+  await expect.poll(async () => (await tabs(options)).filter(t => t.id === anchorId || t.id === otherId)).toEqual([]);
+  const after = await tabs(options);
+  await retain(options, before.filter(t => t.id !== anchorId && t.id !== otherId).map(t => t.id!));
+  expect(after.find(t => t.id === incomingId)).toMatchObject({ groupId: manual, index: anchorBefore.index, windowId: anchorBefore.windowId, pinned: false, url: origin + '/target' });
+  expect(after.find(t => t.id === pinnedId)).toMatchObject({ pinned: true, groupId: -1, index: 0, windowId: before.find(t => t.id === pinnedId)!.windowId, url: origin + '/target' });
+  expect(after.filter(t => t.id !== incomingId).map(t => t.id)).toEqual(before.filter(t => ![incomingId, anchorId, otherId].includes(t.id!)).map(t => t.id));
+  expect(after.filter(t => t.id !== incomingId).map(t => ({ id: t.id, groupId: t.groupId, windowId: t.windowId, pinned: t.pinned, url: t.url })))
+    .toEqual(before.filter(t => ![incomingId, anchorId, otherId].includes(t.id!)).map(t => ({ id: t.id, groupId: t.groupId, windowId: t.windowId, pinned: t.pinned, url: t.url })));
+  expect(after.filter(t => t.groupId === manual).map(t => t.id)).toEqual([incomingId, memberId]);
+  expect(await options.evaluate(() => chrome.tabGroups.query({ title: 'Configured' }))).toEqual([]);
+  await saveProtectionEvidence(info, 'pinned-older', { browser: context.browser()!.version(), pinnedId, incomingId, anchorId, otherId, before, after });
+  await config(options, undefined, false); await incoming.goBack(); expect(incoming.url()).toBe(origin + '/before');
+}));

@@ -223,8 +223,8 @@ for (const name of cases) {
     : name === 'remote rule HTTPS' || name === 'remote foreground-helper HTTPS history' ? 'reuses remote Group A and presents incoming tab'
     : name === 'remote ungrouped HTTPS' ? 'inherits remote ungrouped location and presents incoming tab'
     : 'inherits manual group and closes older duplicate';
-  test(`native external ${name} ${outcome}`, async ({}, testInfo) => {
-    test.skip(process.platform !== 'darwin', 'Requires macOS LaunchServices and a bundled Chromium app.');
+  test(`native external ${name} ${outcome}`, { tag: '@native-macos' }, async ({}, testInfo) => {
+
     await runNativeCase(name, testInfo);
   });
 }

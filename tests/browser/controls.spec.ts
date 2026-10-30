@@ -173,7 +173,7 @@ test('unavailable current document read disables protection while global Pause a
   await expect(options.getByRole('heading',{name:'ChromeReHome installed'})).toBeVisible();
 }));
 
-test('native action popup uses the actual selected web tab and owned-profile incognito access',async({},info)=>fixture(async f=>{
+test('actual action popup uses the actual selected web tab and owned-profile incognito access', { tag: '@headed' },async({},info)=>fixture(async f=>{
   const {context,options,popup,tabId,extensionId}=f;
   await popup.close();
   await options.evaluate(async id=>{await chrome.tabs.update(id,{active:true});const tab=await chrome.tabs.get(id);await chrome.windows.update(tab.windowId,{focused:true});},tabId);

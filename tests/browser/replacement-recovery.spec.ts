@@ -472,8 +472,8 @@ for (const phase of ['pending:move:4', 'settled:move:4', 'verified:move:4']) {
 
 for(const phase of ['pending:activate:4','settled:activate:4','verified:activate:4','presentation:native-fulfilled:activate',
   'pending:focus:5','settled:focus:5','verified:focus:5','presentation:native-fulfilled:focus']){
-  test(`native foreground phase worker termination after ${phase} never replays presentation or removal`,async({},info)=>{
-    test.skip(process.platform!=='darwin','Requires macOS headed native focus.');
+  test(`native foreground phase worker termination after ${phase} never replays presentation or removal`, { tag: '@native-macos' },async({},info)=>{
+
     await trial(true,async f=>{
       const s=await phaseScenario(f);
       const setup=await f.options.evaluate(async({winnerId,origin})=>{
@@ -508,8 +508,8 @@ for(const phase of ['pending:activate:4','settled:activate:4','verified:activate
 
 
 for (const mode of ['foreground', 'background', 'changed-url'] as const) {
-  test(`native history during corrective move preserves ${mode === 'changed-url' ? 'changed-URL cancellation' : mode + ' intent'}`, async ({}, info) => {
-    test.skip(process.platform !== 'darwin', 'Requires macOS headed native focus.');
+  test(`native history during corrective move preserves ${mode === 'changed-url' ? 'changed-URL cancellation' : mode + ' intent'}`, { tag: '@native-macos' }, async ({}, info) => {
+
     await trial(true, async f => {
       const setup = await f.options.evaluate(async origin => {
         const source = await chrome.windows.create({ url: [origin + '/before', origin + '/source-spare'], focused: true });
