@@ -1,3 +1,4 @@
+import { registerProtectionIndicator } from '../browser/protection-indicator';
 import { registerTabContextMenu } from '../browser/tab-context-menu';
 import { createStatusNotifier } from '../browser/control-status-hints';
 import { createControlTargets, createNativeControlTargets } from '../browser/control-target';
@@ -20,7 +21,8 @@ import { registerEvents } from './register-events';
 
 const notifyPopupStatus = createStatusNotifier(chrome.runtime);
 let tabMenu: ReturnType<typeof registerTabContextMenu> | undefined;
-const notifyStatus = () => { notifyPopupStatus(); tabMenu?.refresh(); };
+let protectionIndicator: ReturnType<typeof registerProtectionIndicator> | undefined;
+const notifyStatus = () => { notifyPopupStatus(); tabMenu?.refresh(); protectionIndicator?.refresh(); };
 const diagnostics = createDiagnostics();
 const tracker = createNavigationTracker();
 const port = createPlacementAdapter(chrome);
@@ -45,6 +47,7 @@ const coordinator = createCoordinator({
 const reportFailure = () => { diagnostics.record({ code: 'operation-failed' }); };
 
 tabMenu = registerTabContextMenu(chrome, controls, reportFailure);
+protectionIndicator = registerProtectionIndicator(chrome, controls, reportFailure);
 registerControlMessages(chrome.runtime, controls);
 registerEvents(chrome, coordinator, reportFailure);
 void coordinator.initialize().catch(() => { reportFailure(); }).finally(notifyStatus);

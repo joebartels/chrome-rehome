@@ -128,7 +128,14 @@ export function createControlService({ config, protections, targets, nativeTarge
     notify();
   }
   function setNativeTabProtected(target: TargetHint, protectedValue: boolean): Promise<ControlReply> {
-    if (!isTargetHint(target) || typeof protectedValue !== 'boolean') return Promise.resolve(reply('invalid'));
+    if (typeof protectedValue !== 'boolean') return Promise.resolve(reply('invalid'));
+    return changeNativeProtection(target, protectedValue);
+  }
+  function toggleNativeTabProtected(target: TargetHint): Promise<ControlReply> {
+    return changeNativeProtection(target, 'toggle');
+  }
+  function changeNativeProtection(target: TargetHint, protectedValue: boolean | 'toggle'): Promise<ControlReply> {
+    if (!isTargetHint(target)) return Promise.resolve(reply('invalid'));
     if (disposed || !nativeTargets) return Promise.resolve(reply('unavailable'));
     const hint = Object.freeze({ ...target });
     const capability = nativeTargets;
@@ -232,8 +239,8 @@ export function createControlService({ config, protections, targets, nativeTarge
     return Object.freeze({ kind: 'ok', status: Object.freeze({ ...getStatus(), target: Object.freeze({ ...target,
       protected: isProtected({ id: hint.tabId, incognito: hint.incognito }, protection.state.value.tabs) }) }) });
   }
-  async function setProtected(command: { target: TargetHint; protected: boolean }, acceptedRevision: number, capability: NativeControlTargets, observation: TargetObservation, expectedReceipt?: TabReceipt): Promise<ControlReply['kind']> {
-    if (!command.protected && revision !== acceptedRevision) return 'conflict';
+  async function setProtected(command: { target: TargetHint; protected: boolean | 'toggle' }, acceptedRevision: number, capability: NativeControlTargets, observation: TargetObservation, expectedReceipt?: TabReceipt): Promise<ControlReply['kind']> {
+    if (command.protected !== true && revision !== acceptedRevision) return 'conflict';
     const configured = config.getCurrent();
     const current = protections.getCurrent();
     if (configured?.state.kind !== 'ready' || current?.state.kind !== 'ready' || protectionStartupFailed || runtime() !== 'ready') return 'unavailable';
@@ -246,8 +253,9 @@ export function createControlService({ config, protections, targets, nativeTarge
     const previous = current.state.value;
     // An identity in another privacy context is never transferred to the new context.
     if (previous.tabs.some(tab => tab.tabId === command.target.tabId && tab.incognito !== command.target.incognito)) return 'conflict';
+    const protectedValue = command.protected === 'toggle' ? !isProtected({ id: hint.tabId, incognito: hint.incognito }, previous.tabs) : command.protected;
     const others = previous.tabs.filter(tab => tab.tabId !== command.target.tabId);
-    const value = { version: 1 as const, tabs: command.protected ? [...others, { tabId: command.target.tabId, incognito: command.target.incognito }] : others };
+    const value = { version: 1 as const, tabs: protectedValue ? [...others, { tabId: command.target.tabId, incognito: command.target.incognito }] : others };
     if (value.tabs.length > 1000) return 'unavailable';
     const beforeWrite = generation;
     const written = await protections.save(value);
@@ -262,6 +270,12 @@ export function createControlService({ config, protections, targets, nativeTarge
     if (runtime() !== 'ready') { failProtection(command.target); return 'unavailable'; }
     if (protectionFailure !== 'pause-required' && protectionFailure && sameIdentity(protectionFailure, command.target)) protectionFailure = undefined;
     return 'ok';
+  }
+  function getProtectedTabs(): readonly ProtectedIdentity[] | undefined {
+    const phase = getStatus().phase;
+    if (phase !== 'active' && phase !== 'paused') return;
+    const current = protections.getCurrent();
+    return current?.state.kind === 'ready' ? current.state.value.tabs : undefined;
   }
   function forget(tabId: number): Promise<void> {
     const known = protections.getLastKnown();
@@ -280,7 +294,7 @@ export function createControlService({ config, protections, targets, nativeTarge
     });
   }
   return {
-    initialize, getStatus, handle, setNativeTabProtected, capture, isCurrent, invalidate,
+    initialize, getStatus, handle, setNativeTabProtected, toggleNativeTabProtected, getProtectedTabs, capture, isCurrent, invalidate,
     get generation(): number { return generation; },
     // The navigation tracker owns removal leases; unprotected removals do not revoke controls.
     forget,

@@ -38,6 +38,7 @@ test('popup page prepares manual protection while paused, toggles global process
   await expect(popup.getByRole('checkbox',{name:'Protect this tab'})).toBeChecked();
   expect(await options.evaluate(async()=> ((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig as Config | undefined)?.enabled ?? false)).toBe(false);
   expect(await options.evaluate(async()=> ((await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections as ProtectionValue).tabs)).toEqual([{tabId,incognito:false}]);
+  await expect.poll(()=>options.evaluate(async tabId=>({text:await chrome.action.getBadgeText({tabId}),title:await chrome.action.getTitle({tabId})}),tabId)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
   await screenshot(popup,info,'paused-protected');
   await options.getByRole('button',{name:'Add grouping rule',exact:true}).click();
   const draft=options.getByRole('group',{name:'Grouping rule 1',exact:true});
@@ -48,6 +49,7 @@ test('popup page prepares manual protection while paused, toggles global process
   expect(await options.evaluate(async()=> ((await chrome.storage.local.get('chromeReHomeConfig')).chromeReHomeConfig as Config).groupingRules)).toEqual([]);
   await popup.getByRole('button',{name:'Pause',exact:true}).click(); await expect(popup.getByRole('heading',{name:'Paused',exact:true})).toBeVisible();
   await popup.getByRole('checkbox',{name:'Protect this tab'}).click(); await expect(popup.getByRole('checkbox',{name:'Protect this tab'})).not.toBeChecked();
+  await expect.poll(()=>options.evaluate(async tabId=>({text:await chrome.action.getBadgeText({tabId}),title:await chrome.action.getTitle({tabId})}),tabId)).toEqual({text:'',title:'ChromeReHome'});
   await popup.evaluate(()=>{document.documentElement.style.fontSize='28px';});
   await popup.getByRole('button',{name:'Pause',exact:true}).focus();
   await popup.keyboard.press('Tab'); await expect(popup.getByRole('button',{name:'Resume',exact:true})).toBeFocused();

@@ -174,3 +174,41 @@ test.each(['unavailable', 'prune'] as const)('native startup %s failure cannot c
   expect(await f.protect(true)).toMatchObject({ kind: 'unavailable', status: { phase: 'unavailable' } });
   expect(f.registry.writes).toHaveLength(failure === 'prune' ? 1 : 0); expect(f.service.capture()).toBeUndefined(); expect(f.target.listeners()).toBe(0);
 });
+
+// These cases exercise the native atomic toggle, never a popup read-then-set.
+test('toggle flips only the inactive native identity from verified writer state', async () => {
+  const f = fixture(); await f.service.initialize(); const capture = f.service.capture()!;
+  const reads = f.target.queries.length;
+  const pending = f.service.toggleNativeTabProtected(hint);
+  expect(f.service.isCurrent(capture)).toBe(false); expect(f.service.getProtectedTabs()).toBeUndefined();
+  expect((await pending).kind).toBe('ok'); expect(f.service.getProtectedTabs()).toEqual(stored.tabs);
+  expect((await f.service.toggleNativeTabProtected(hint)).kind).toBe('ok'); expect(f.registry.raw).toEqual({ version: 1, tabs: [] });
+  expect(f.target.queries).toHaveLength(reads); expect(f.configRaw).toEqual(initial);
+});
+test.each(['ready', 'pause', 'navigation', 'privacy', 'cleanup', 'newer'] as const)('cold toggle keeps original authority through %s', async change => {
+  const gate = deferred<void>(); const f = fixture(stored, () => gate.promise);
+  const pending = f.service.toggleNativeTabProtected(hint); await f.service.initialize();
+  expect(f.service.getProtectedTabs()).toBeUndefined();
+  let newer: Promise<unknown> | undefined;
+  if (change === 'pause') expect((await f.pause()).kind).toBe('ok');
+  if (change === 'navigation') f.target.navigation.onCommitted.emit({ tabId: 7, frameId: 0 });
+  if (change === 'privacy') f.target.tab = { ...f.target.tab, incognito: true };
+  if (change === 'cleanup') await f.service.forget(7);
+  if (change === 'newer') newer = f.service.toggleNativeTabProtected(hint);
+  gate.resolve(); expect((await pending).kind).toBe(change === 'ready' ? 'ok' : 'conflict'); await newer;
+  expect(f.registry.raw).toEqual(['ready', 'cleanup', 'newer'].includes(change) ? { version: 1, tabs: [] } : stored);
+  expect(f.target.listeners()).toBe(0);
+});
+test('toggle failed verification clears snapshot claims and read-only accessor never changes authority', async () => {
+  const f = fixture(); expect(f.service.getProtectedTabs()).toBeUndefined(); await f.service.initialize();
+  const generation = f.service.generation; const queries = f.target.queries.length;
+  expect(f.service.getProtectedTabs()).toEqual([]); expect(f.service.getProtectedTabs()).toEqual([]);
+  expect(f.service.generation).toBe(generation); expect(f.target.queries).toHaveLength(queries);
+  f.registry.setWrite(async value => { f.registry.setRaw(value); f.target.navigation.onCommitted.emit({ tabId: 7, frameId: 0 }); });
+  expect((await f.service.toggleNativeTabProtected(hint)).kind).toBe('conflict'); expect(f.service.getProtectedTabs()).toBeUndefined();
+});
+test('toggle rejects malformed or cross-privacy targets without fallback', async () => {
+  const f = fixture(stored); await f.service.initialize();
+  expect((await f.service.toggleNativeTabProtected({ ...hint, tabId: -1 })).kind).toBe('invalid');
+  expect((await f.service.toggleNativeTabProtected({ ...hint, incognito: true })).kind).toBe('conflict'); expect(f.registry.writes).toEqual([]);
+});

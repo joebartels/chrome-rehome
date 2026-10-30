@@ -40,13 +40,16 @@ async function fixture(run: (context: BrowserContext, worker: Worker, id: string
     await run(context,worker,new URL(worker.url()).host);
   } finally { await context?.close(); await rm(root,{recursive:true,force:true}); }
 }
-const ids=['chromeReHome.protectTab','chromeReHome.unprotectTab'];
+const ids=['chromeReHome.toggleTabProtection'];
+async function badge(worker: Worker, tabId: number) {
+  return worker.evaluate(async tabId => ({ text: await chrome.action.getBadgeText({tabId}), title: await chrome.action.getTitle({tabId}) }), tabId);
+}
 async function enabled(worker: Worker) {
   return worker.evaluate(ids=>ids.map(id=>menuBoundary.trace.filter(t=>t.id===id&&!t.failed&&t.kind!=='remove').at(-1)?.enabled),ids);
 }
 test('packaged menu registers actual tab contexts and API-boundary intents affect only the inactive supplied tab',async({},info)=>fixture(async(context,worker,id)=>{
-  await expect.poll(()=>enabled(worker)).toEqual([true,true]);
-  expect(await worker.evaluate(()=>menuBoundary.trace.filter(t=>t.kind==='create'&&!t.failed).map(t=>t.contexts))).toEqual([['tab'],['tab']]);
+  await expect.poll(()=>enabled(worker)).toEqual([true]);
+  expect(await worker.evaluate(()=>menuBoundary.trace.filter(t=>t.kind==='create'&&!t.failed).map(t=>t.contexts))).toEqual([['tab']]);
   const active=context.pages()[0]!;await active.goto('https://menu-boundary.test/A');
   const targetPage=await context.newPage();await targetPage.goto('https://menu-boundary.test/B');
   const {activeTab,target}=await worker.evaluate(async()=>{const tabs=await chrome.tabs.query({});const activeTab=tabs.find(t=>t.url==='https://menu-boundary.test/A')!;const target=tabs.find(t=>t.url==='https://menu-boundary.test/B')!;await chrome.tabs.update(activeTab.id!,{active:true});return{activeTab,target:await chrome.tabs.get(target.id!)};});
@@ -54,31 +57,55 @@ test('packaged menu registers actual tab contexts and API-boundary intents affec
   const before=await snapshot();
   expect(before.tabs.find(tab=>tab.id===target.id)?.active).toBe(false);
   expect(before.tabs.find(tab=>tab.id===activeTab.id)?.active).toBe(true);
-  await worker.evaluate(tab=>menuBoundary.click({menuItemId:'chromeReHome.protectTab'},tab),target);
+  await worker.evaluate(tab=>menuBoundary.click({menuItemId:'chromeReHome.toggleTabProtection'},tab),target);
   await expect.poll(()=>worker.evaluate(async()=> (await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections)).toEqual({version:1,tabs:[{tabId:target.id,incognito:false}]});
-  await expect.poll(()=>enabled(worker)).toEqual([true,true]);
+  await expect.poll(()=>enabled(worker)).toEqual([true]);
   expect(await snapshot()).toEqual(before);
+  await expect.poll(()=>badge(worker,target.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
+  expect(await badge(worker,activeTab.id!)).toEqual({text:'',title:'ChromeReHome'});
   const siblingPage=await context.newPage();await siblingPage.goto('https://menu-boundary.test/C');
   const sibling=await worker.evaluate(async()=> (await chrome.tabs.query({})).find(t=>t.url==='https://menu-boundary.test/C')!);
   await worker.evaluate(async({a,b,c})=>{await chrome.tabs.highlight({windowId:b.windowId,tabs:[a,b.index,c.index]});},{a:activeTab.index,b:target,c:sibling});
   const highlighted=await snapshot();
-  await worker.evaluate(async tabId=>menuBoundary.click({menuItemId:'chromeReHome.unprotectTab'},await chrome.tabs.get(tabId)),target.id!);
+  await worker.evaluate(async tabId=>menuBoundary.click({menuItemId:'chromeReHome.toggleTabProtection'},await chrome.tabs.get(tabId)),target.id!);
   await expect.poll(()=>worker.evaluate(async()=> (await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections)).toEqual({version:1,tabs:[]});
   expect(await snapshot()).toEqual(highlighted);
+  await expect.poll(()=>badge(worker,target.id!)).toEqual({text:'',title:'ChromeReHome'});
+  // Navigate through Playwright before moving the tab: the first navigation of a
+  // chrome.windows.create URL can escape the route and become an error document.
+  const otherPage=await context.newPage(); await otherPage.goto('https://menu-boundary.test/other');
+  const otherTab=await worker.evaluate(async()=>{
+    const tab=(await chrome.tabs.query({})).find(tab=>tab.url==='https://menu-boundary.test/other')!;
+    await chrome.windows.create({tabId:tab.id!,focused:false}); return chrome.tabs.get(tab.id!);
+  });
+  expect(await worker.evaluate(id=>chrome.webNavigation.getFrame({tabId:id,frameId:0}),otherTab.id!)).toMatchObject({errorOccurred:false});
+  await worker.evaluate(tab=>menuBoundary.click({menuItemId:'chromeReHome.toggleTabProtection'},tab),otherTab);
+  await expect.poll(()=>badge(worker,otherTab.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
+  expect(await badge(worker,target.id!)).toEqual({text:'',title:'ChromeReHome'});
+  expect(await worker.evaluate(()=>chrome.action.getBadgeText({}))).toBe('');
   await info.attach('api-boundary-only',{body:JSON.stringify({version:context.browser()!.version(),targetId:target.id,before,highlighted,nativeClick:false}),contentType:'application/json'});
 }));
-test('packaged read-only readiness refresh disables both menus after journal failure without storage publication',async()=>fixture(async(context,worker,id)=>{
-  await expect.poll(()=>enabled(worker)).toEqual([true,true]);
+test('packaged read-only readiness refresh disables the toggle after journal failure without storage publication',async()=>fixture(async(context,worker,id)=>{
+  await expect.poll(()=>enabled(worker)).toEqual([true]);
   await worker.evaluate(()=>chrome.storage.local.set({chromeReHomeConfig:{schemaVersion:4,enabled:true,groupingRules:[{enabled:true,pattern:'https://menu-boundary.test/*',group:'Menus'}],duplicateRules:[]}}));
-  await expect.poll(()=>enabled(worker)).toEqual([true,true]);
+  await expect.poll(()=>enabled(worker)).toEqual([true]);
   await worker.evaluate(()=>{const original=chrome.storage.session.set.bind(chrome.storage.session);chrome.storage.session.set=async values=>{if(Object.hasOwn(values,'chromeReHomeReplacementJournal'))throw Error('injected failure');await original(values);};});
   const page=context.pages()[0]!;await page.goto('https://menu-boundary.test/journal-failure');
-  await expect.poll(()=>enabled(worker)).toEqual([false,false]);
+  await expect.poll(()=>enabled(worker)).toEqual([false]);
   expect(await worker.evaluate(async()=> (await chrome.storage.session.get('chromeReHomeReplacementJournal')).chromeReHomeReplacementJournal)).toBeUndefined();
 }));
-test('actual worker restart updates persistent menu IDs and extension reload recreates exactly the pair',async()=>fixture(async(context,worker,id)=>{
-  await expect.poll(()=>enabled(worker)).toEqual([true,true]);
+test('actual worker restart updates persistent menu IDs and extension reload recreates exactly one toggle',async()=>fixture(async(context,worker,id)=>{
+  await expect.poll(()=>enabled(worker)).toEqual([true]);
   const firstRealm=await worker.evaluate(()=>menuBoundary.realm);
+  const targetPage=context.pages()[0]!; await targetPage.goto('https://menu-boundary.test/restart');
+  const target=await worker.evaluate(async()=> (await chrome.tabs.query({})).find(tab=>tab.url==='https://menu-boundary.test/restart')!);
+  await worker.evaluate(tab=>menuBoundary.click({menuItemId:'chromeReHome.toggleTabProtection'},tab),target);
+  await expect.poll(()=>badge(worker,target.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
+  await targetPage.reload();
+  expect(await worker.evaluate(async()=> (await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections)).toEqual({version:1,tabs:[{tabId:target.id,incognito:false}]});
+  await expect.poll(()=>badge(worker,target.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
+  // Simulate an extension update carrying legacy menu IDs into the next worker.
+  await worker.evaluate(()=>Promise.all(['chromeReHome.protectTab','chromeReHome.unprotectTab','unrelated-menu'].map(id=>new Promise<void>(resolve=>chrome.contextMenus.create({id,title:id,contexts:['page']},()=>resolve())))));
   const page=await context.newPage();await page.goto(`chrome-extension://${id}/options/index.html`);
   const session=await context.newCDPSession(page);
   const versions=new Map<string,{versionId:string;scriptURL:string;runningStatus:string}>();
@@ -91,9 +118,12 @@ test('actual worker restart updates persistent menu IDs and extension reload rec
   await page.evaluate(()=>chrome.runtime.sendMessage({kind:'get-status'}));
   await expect.poll(()=>versions.get(version.versionId)?.runningStatus).toBe('running');
   const restarted=worker;
-  await expect.poll(()=>enabled(restarted)).toEqual([true,true]);
+  await expect.poll(()=>enabled(restarted)).toEqual([true]);
   const restartedRealm=await restarted.evaluate(()=>menuBoundary.realm);expect(restartedRealm).not.toBe(firstRealm);
   expect(await restarted.evaluate(()=>menuBoundary.trace.filter(t=>t.kind==='create'))).toEqual([]);
+  expect(await restarted.evaluate(()=>menuBoundary.trace.filter(t=>t.kind==='remove'&&!t.failed).map(t=>t.id))).toEqual(['chromeReHome.protectTab','chromeReHome.unprotectTab']);
+  await expect.poll(()=>badge(restarted,target.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
+  expect(await restarted.evaluate(()=>new Promise<boolean>(resolve=>chrome.contextMenus.update('unrelated-menu',{title:'still here'},()=>resolve(!chrome.runtime.lastError))))).toBe(true);
   // Unpacked reload requires developer mode in this disposable profile, matching
   // the existing incognito/reload fixture. No personal browser setting changes.
   const manager=await context.newPage();await manager.goto('chrome://extensions');
@@ -105,8 +135,11 @@ test('actual worker restart updates persistent menu IDs and extension reload rec
   await expect.poll(()=>page.isClosed()).toBe(true);
   const reloaded=await ready;
   expect(await reloaded.evaluate(()=>menuBoundary.realm)).not.toBe(restartedRealm);
-  await expect.poll(()=>enabled(reloaded)).toEqual([true,true]);
+  await expect.poll(()=>enabled(reloaded)).toEqual([true]);
   expect(await reloaded.evaluate(()=>menuBoundary.trace.filter(t=>t.kind==='create'&&!t.failed).map(t=>t.id))).toEqual(ids);
+  await expect.poll(()=>badge(reloaded,target.id!)).toEqual({text:'',title:'ChromeReHome'});
+  await reloaded.evaluate(tab=>menuBoundary.click({menuItemId:'chromeReHome.toggleTabProtection'},tab),target);
+  await expect.poll(()=>badge(reloaded,target.id!)).toEqual({text:'🔒',title:'ChromeReHome — tab protected'});
   await session.detach().catch(()=>{});
 }));
 test('unsupported tab context is contained and existing popup protection remains usable',async()=>fixture(async(context,worker,id)=>{

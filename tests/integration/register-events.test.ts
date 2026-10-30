@@ -170,27 +170,29 @@ describe('worker event registration', () => {
     const sessionStarted = new Promise<void>(resolve => { sessionRead = resolve; });
     fake.storage.session.get.mockImplementation(async () => {
       for (const group of [fake.webNavigation, fake.tabs]) {
-        for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
+        for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(group === fake.tabs ? 2 : 1);
       }
       expect(menuClicks.listeners.size).toBe(1);
-      expect(fake.runtime.onStartup.listeners.size).toBe(2);
-      expect(fake.runtime.onInstalled.listeners.size).toBe(2);
+      expect(fake.runtime.onStartup.listeners.size).toBe(3);
+      expect(fake.runtime.onInstalled.listeners.size).toBe(3);
       sessionRead();
       return {};
     });
     const menuClicks = event<Parameters<typeof chrome.contextMenus.onClicked.addListener>[0]>();
-    const contextMenus = { onClicked: menuClicks, update: vi.fn((_id, _properties, callback) => callback()), create: vi.fn(), remove: vi.fn() };
+    const contextMenus = { onClicked: menuClicks, update: vi.fn((_id, _properties, callback) => callback()), create: vi.fn(), remove: vi.fn((_id, callback) => callback()) };
     const messages = event<Parameters<typeof chrome.runtime.onMessage.addListener>[0]>();
-    vi.stubGlobal('chrome', { ...fake, contextMenus, runtime: { ...fake.runtime, sendMessage: vi.fn(async () => {}), id: 'self',
+    vi.stubGlobal('chrome', { ...fake, contextMenus,
+      tabs: { ...fake.tabs, onActivated: event(), onCreated: event(), onAttached: event(), query: vi.fn(async () => []) },
+      action: { setBadgeText: vi.fn(async () => {}), setTitle: vi.fn(async () => {}) }, runtime: { ...fake.runtime, sendMessage: vi.fn(async () => {}), id: 'self',
       getURL: (path: string) => `chrome-extension://self/${path}`, onMessage: messages } });
     await import('../../src/background/index');
     expect(messages.listeners.size).toBe(1);
     expect(menuClicks.listeners.size).toBe(1);
-    expect(fake.runtime.onStartup.listeners.size).toBe(2);
-    expect(fake.runtime.onInstalled.listeners.size).toBe(2);
+    expect(fake.runtime.onStartup.listeners.size).toBe(3);
+    expect(fake.runtime.onInstalled.listeners.size).toBe(3);
     await sessionStarted;
     for (const group of [fake.webNavigation, fake.tabs]) {
-      for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(1);
+      for (const observed of Object.values(group)) expect(observed.listeners.size).toBe(group === fake.tabs ? 2 : 1);
     }
     expect(fake.storage.local.get).toHaveBeenCalledTimes(1);
     expect(fake.storage.local.set).not.toHaveBeenCalled();

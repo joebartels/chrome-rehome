@@ -2,11 +2,10 @@ import { isTargetHint, type ControlReply, type ControlStatus, type TargetHint } 
 
 type Controls = {
   getStatus(): ControlStatus;
-  setNativeTabProtected(target: TargetHint, protectedValue: boolean): Promise<ControlReply>;
+  toggleNativeTabProtected(target: TargetHint): Promise<ControlReply>;
 };
 const actions = [
-  { id: 'chromeReHome.protectTab', title: 'Protect this tab', protectedValue: true },
-  { id: 'chromeReHome.unprotectTab', title: 'Unprotect this tab', protectedValue: false },
+  { id: 'chromeReHome.toggleTabProtection', title: 'Toggle tab protection' },
 ] as const;
 
 /** Tab-strip events are trusted worker input, never a selected-tab or runtime-message fallback. */
@@ -15,6 +14,7 @@ export function registerTabContextMenu(api: Pick<typeof chrome, 'contextMenus' |
   let dirty = false;
   let failed = false;
   let registered = false;
+  let migrated = false;
   // Older runtimes reject this context; callback APIs retain Chrome 120 popup compatibility.
   const contexts: ['tab'] = ['tab'];
   function call(operation: (done: () => void) => void): Promise<boolean> {
@@ -25,6 +25,10 @@ export function registerTabContextMenu(api: Pick<typeof chrome, 'contextMenus' |
   }
   async function reconcile(): Promise<void> {
     try {
+      if (!migrated) {
+        for (const id of ['chromeReHome.protectTab', 'chromeReHome.unprotectTab']) await call(done => { api.contextMenus.remove(id, done); });
+        migrated = true;
+      }
       while (dirty && !failed) {
         dirty = false;
         const phase = controls.getStatus().phase;
@@ -61,7 +65,7 @@ export function registerTabContextMenu(api: Pick<typeof chrome, 'contextMenus' |
     if (!isTargetHint(hint)) return;
     // Admission/observation happen synchronously inside the control service,
     // including the first click waking a suspended worker. No readiness await here.
-    try { void controls.setNativeTabProtected(hint, action.protectedValue).catch(() => { reportFailure(); }); }
+    try { void controls.toggleNativeTabProtected(hint).catch(() => { reportFailure(); }); }
     catch { reportFailure(); }
   }
   api.contextMenus.onClicked.addListener(onClicked);
