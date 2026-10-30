@@ -1,6 +1,6 @@
 # Task009 browser regression closeout
 
-Version **0.1.2**; tested source `historical-revision`, local branch `pause-controls-protections`. Task009 final-review correction is implemented; focused browser validation and independent re-review are pending. Task010 and011 have not started. No push or merge.
+Version **0.1.2**; tested source `historical-revision`, local branch `pause-controls-protections`. Task009 is complete for the local regression handoff; both task reviews and the final correction/evidence review are approved. Task010 and011 have not started. No push or merge.
 
 ## What changed
 
@@ -12,11 +12,11 @@ Test-only focus diagnostics retain actual native attention, source/winner/docume
 
 ## Historical verification and current correction status
 
-Controller independently ran **1,382 portable tests in46 files**, typecheck, build, strict package validation and whole-Task009 whitespace checks; all pass. Controller also reran the strict checker against the complete raw browser report: **160/160** passed in one final invocation, with **28 native-macos,125 portable and7 headed**, zero skips/retries/flaky/unexpected/runner errors. Bundled Chromium156.0.8078.4; Node24.22.1; macOS arm64. These results are local, not a claim of hosted Linux execution or Chrome120 runtime certification.
+Controller independently ran **1,384 portable tests in46 files**, typecheck, build, strict package validation and whole-Task009 whitespace checks; all pass. Controller also reran the strict checker against the complete raw browser report: **160/160** passed in one final invocation, with **28 native-macos,125 portable and7 headed**, zero skips/retries/flaky/unexpected/runner errors. Bundled Chromium156.0.8078.4; Node24.22.1; macOS arm64. These results are local, not a claim of hosted Linux execution or Chrome120 runtime certification.
 
 The final eight-file package has three JS graphs and the same five permissions. All four source version values and built manifest read back as0.1.2. Controller hash comparison with the previous approved build proves all seven non-manifest distribution files unchanged; manifest content differs only by version. No `src/` production change exists in Task009. Thus this release adds test/tooling coverage while retaining the extension program already tried by the user.
 
-Independent Task1 and Task2 reviews: Approved. Whole-scope review found one P2: the pinned-incoming synchronization barrier could cancel faulty work. The correction needs focused validation and scoped re-review; no final approval is claimed. See the [coverage matrix](../testing/browser-regression-matrix.md) and [author verification record](2026-10-29-browser-regression-verification.md).
+Independent Task1 and Task2 reviews: Approved. Whole-scope review found one P2: the pinned-incoming synchronization barrier could cancel faulty work. The code correction and its meaningful sensitivity RED/six-case focused GREEN passed scoped independent review; P2 is closed with no new Critical/Important findings. [Whole-scope review](2026-10-30-browser-regression-final-review.md) and [correction/evidence closure](2026-10-30-browser-regression-final-fix-review.md) preserve the review history. See the [coverage matrix](../testing/browser-regression-matrix.md) and [author verification record](2026-10-29-browser-regression-verification.md).
 
 ## Preserved failures and limits
 
@@ -40,4 +40,8 @@ Fresh installs remain paused. Task009 authorizes regression coverage, not an act
 
 Helper RED/GREEN is retained (1 failed/9 passed, then 10/10), and full portable tests now pass 1384/46 with typecheck/build/package. Current inventory is 161 (126 portable, 28 native, 7 headed); the historical 160/160 report remains a separate single invocation. All eight candidate distribution files plus metafile remain byte-identical to the earlier verified 0.1.2 package, so no new user build/version is delivered.
 
-The required focused browser and delayed-wrong-work proof remain blocked: three isolated startup attempts never registered the extension worker, with owned Chromium GPU/network helper exit 5 and main-browser SIGTRAP in launch diagnostics. The initial fault attempt is not valid sensitivity RED. Reports/logs/traces, strict-checker failures and copied-worker fault bytes are retained; the cause is unproven. No flags, OS security, retries or re-navigation were used to hide it. Final Task009 completion is pending this validation and scoped review, while all prior failure/manual/runtime limits remain.
+The 30 October correction was validated separately: a controlled delayed wrong closure failed the exact retained-ID assertion after same-realm completion while the captured view was current, and the strict checker rejected that RED. Restoring the normal fixture then passed six focused cases (the two packaged pinned cases, instrumented completion companion and three representative recovery barriers), once each with zero skips/retries. The strict portable checker passed. This is focused follow-up evidence, not a single complete 161-case invocation.
+
+The startup blocker was isolated to an incomplete old custom browser cache: 321 bundle files were missing, including main/framework/helper Info.plists; 19 remaining files matched a fresh copy, with no changed contents. A complete separate copy of the same pinned Chromium156.0.8078.4/revision1248 ran the proof successfully. Only the proof runner browser-cache path changed. The old cache and failed reports remain intact. The cause of the missing files is unknown; no OS/security/browser-flag change or automatic retry was made. This does not explain the older options-to-about:blank or attention-null observations.
+
+The normal fixture, all prepared source hashes and every distribution byte were restored and independently rechecked. Raw proof and all failed runs are retained separately. The correction stays within0.1.2; no changed user build was delivered mid-task.
