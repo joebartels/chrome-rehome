@@ -1,4 +1,4 @@
-import { activateOwnedBrowser } from './owned-browser-focus';
+import { activateOwnedBrowser, ownedBrowserFocus } from './owned-browser-focus';
 import { test, expect, chromium, type BrowserContext, type Page, type TestInfo } from '@playwright/test';
 import { execFile } from 'node:child_process';
 import { createServer as createHttpServer } from 'node:http';
@@ -72,9 +72,35 @@ async function runNativeCase(name: NativeCase, testInfo: TestInfo) {
     if (name.startsWith('remote ')) await activateOwnedBrowser(context);
     const worker = context.serviceWorkers()[0] ?? await context.waitForEvent('serviceworker');
     const options = await context.newPage();
-    await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`);
+    const setupEvents: unknown[] = [];
+    const recordSetup = (event: string, value: unknown) => {
+      setupEvents.push({timestamp: Date.now(), event, value});
+      if (setupEvents.length > 100) setupEvents.shift();
+    };
+    options.on('framenavigated', frame => recordSetup('frame-navigated', {url: frame.url(), main: frame === options.mainFrame()}));
+    options.on('pageerror', error => recordSetup('page-error', String(error)));
+    const setupCdp = await context.newCDPSession(options);
+    await setupCdp.send('Page.enable');
+    setupCdp.on('Page.frameRequestedNavigation', details => recordSetup('requested-navigation', details));
+    setupCdp.on('Page.frameNavigated', details => recordSetup('cdp-frame-navigated', details));
+    const osBeforeOptions = await ownedBrowserFocus(context);
+    try {
+      await options.goto(`chrome-extension://${new URL(worker.url()).host}/options/index.html`);
+      await config(options, finalUrl, false);
+    } catch (error) {
+      recordSetup('failure', String(error));
+      throw error;
+    } finally {
+      const snapshot = await worker.evaluate(async () => ({tabs: await chrome.tabs.query({windowType:'normal'}),
+        windows: await chrome.windows.getAll({windowTypes:['normal']})})).catch(error => ({error: String(error)}));
+      const osAfterOptions = await ownedBrowserFocus(context).catch(error => ({error: String(error)}));
+      const setupPath = testInfo.outputPath('external-options-setup.json');
+      await writeFile(setupPath, JSON.stringify({name,profile:join(root,'profile'),executablePath:launcher.executablePath,
+        osBeforeOptions,osAfterOptions,url:options.url(),setupEvents,snapshot},null,2));
+      await testInfo.attach('external-options-setup', {path:setupPath,contentType:'application/json'});
+      await setupCdp.detach();
+    }
     const tabs = () => options.evaluate(() => chrome.tabs.query({ windowType: 'normal' }));
-    await config(options, finalUrl, false);
     const remote = name.startsWith('remote ');
     const ruleOnly = name === 'remote rule HTTPS' || helperCase;
     const ungrouped = name === 'remote ungrouped HTTPS';

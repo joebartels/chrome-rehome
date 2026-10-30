@@ -2,9 +2,7 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import type { BrowserContext } from '@playwright/test';
 
-/** Activate only the browser process belonging to this isolated test context. */
-export async function activateOwnedBrowser(context: BrowserContext) {
-  if (process.platform !== 'darwin') return;
+async function ownedBrowserPid(context: BrowserContext) {
   const browser = context.browser();
   if (!browser) throw Error('Owned browser is unavailable.');
   const session = await browser.newBrowserCDPSession();
@@ -15,6 +13,24 @@ export async function activateOwnedBrowser(context: BrowserContext) {
     if (browsers.length === 1) pid = browsers[0]!.id;
   } finally { await session.detach(); }
   if (!Number.isSafeInteger(pid) || pid! <= 0) throw Error('Owned browser PID is unavailable.');
+  return pid!;
+}
+
+/** Read only: identifies this disposable browser and the actual frontmost process. */
+export async function ownedBrowserFocus(context: BrowserContext) {
+  if (process.platform !== 'darwin') return;
+  const pid = await ownedBrowserPid(context);
+  const { stdout } = await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `
+ObjC.import('AppKit');
+JSON.stringify({timestamp: Date.now(), pid: ${pid}, frontmostPid: $.NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier});
+`], {timeout: 10_000});
+  return JSON.parse(stdout) as {timestamp: number; pid: number; frontmostPid: number};
+}
+
+/** Activate only the browser process belonging to this isolated test context, once during setup. */
+export async function activateOwnedBrowser(context: BrowserContext) {
+  if (process.platform !== 'darwin') return;
+  const pid = await ownedBrowserPid(context);
   const { stdout } = await promisify(execFile)('/usr/bin/osascript', ['-l', 'JavaScript', '-e', `
 ObjC.import('AppKit');
 const pid = ${pid};

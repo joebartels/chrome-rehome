@@ -1,4 +1,5 @@
-import { activateOwnedBrowser } from './owned-browser-focus';
+import { gateOutcome, recoveryHandled, type Admission, type Completion, type Foreground } from './recovery-observations';
+import { activateOwnedBrowser, ownedBrowserFocus } from './owned-browser-focus';
 import { test, expect, chromium, type BrowserContext, type Page, type Worker, type TestInfo } from '@playwright/test';
 import { createServer } from 'node:http';
 import { cp, mkdtemp, rm, writeFile } from 'node:fs/promises';
@@ -132,6 +133,7 @@ async function seed(options: Page, winnerId: number, oldId: number, kind: string
 }
 
 async function stop(f: Trial) {
+  const oldRealm = await f.worker.evaluate(() => (Reflect.get(globalThis, '__recoveryCompletion') as Completion | undefined)?.realm);
   await f.worker.evaluate(() => {
     Object.defineProperty(globalThis, '__recoveryOldRealm', { value: true });
   });
@@ -157,16 +159,32 @@ async function stop(f: Trial) {
   await cdp.send('ServiceWorker.stopWorker', { versionId: original.versionId });
   await expect.poll(() => versions.get(original.versionId)?.runningStatus).toBe('stopped');
   return {
-    async restarted(info: TestInfo) {
+    async restarted(info: TestInfo, wake?: {page: Page; url: string}) {
       await expect.poll(() => versions.get(original.versionId)?.runningStatus).toBe('running');
       expect(await f.worker.evaluate(() => Reflect.has(globalThis, '__recoveryOldRealm'))).toBe(false);
+      let completion: Completion | undefined;
+      if (wake) {
+        if (!oldRealm) throw Error('Missing original fixture realm');
+        await wake.page.waitForURL(wake.url);
+        const identity = await f.options.evaluate(async url => {
+          const tab = (await chrome.tabs.query({windowType:'normal'})).find(tab => tab.url === url)!;
+          const frame = await chrome.webNavigation.getFrame({tabId: tab.id!, frameId: 0});
+          return {tabId: tab.id!, url, documentId: frame!.documentId, kind:'committed'};
+        }, wake.url);
+        await expect.poll(async () => {
+          completion = await f.worker.evaluate(() => Reflect.get(globalThis, '__recoveryCompletion') as Completion);
+          return recoveryHandled(oldRealm, identity, completion);
+        }).toBe(true);
+      }
       await evidence(info, 'actual-worker-restart', {
         chromium: f.context.browser()!.version(),
         stoppedVersion: original.versionId,
         originalTarget: original.targetId,
         restartedTarget: versions.get(original.versionId)?.targetId,
         observedStopped: true,
-        freshRealm: true
+        freshRealm: true,
+        oldRealm,
+        completion
       });
       await cdp.detach();
     }
@@ -185,9 +203,21 @@ for (const kind of ['ungroup', 'move', 'group', 'title', 'remove', 'activate', '
     await worker.restarted(info);
     const second = await f.context.newPage();
     await second.goto(origin + '/second-before');
+    const secondIdentity = await f.options.evaluate(async url => {
+      const tab = (await chrome.tabs.query({windowType:'normal'})).find(tab => tab.url === url)!;
+      return {tabId: tab.id!, documentId: (await chrome.webNavigation.getFrame({tabId:tab.id!,frameId:0}))!.documentId};
+    }, second.url());
     await second.getByRole('link').click();
-    // A bounded observation verifies two real eligible commits did not admit automatic mutation.
-    await new Promise(done => setTimeout(done, 1000));
+    await second.waitForURL(origin + '/target');
+    await expect.poll(() => f.options.evaluate(async () => {
+      const reply = await chrome.runtime.sendMessage({kind: 'get-status'});
+      return reply.status.phase;
+    })).toBe('blocked');
+    const committed = await f.options.evaluate(async ids => Promise.all(ids.map(tabId =>
+      chrome.webNavigation.getFrame({tabId, frameId:0}))), [s.winnerId,secondIdentity.tabId]);
+    expect(committed.map(frame => frame!.url)).toEqual([origin + '/target', origin + '/target']);
+    expect(committed[0]!.documentId).not.toBe(raw.participants[0]!.documentId);
+    expect(committed[1]!.documentId).not.toBe(secondIdentity.documentId);
     expect(JSON.stringify(await journal(f.options))).toBe(bytes);
     const after = await tabs(f.options);
     expect(after.find(t => t.id === s.winnerId)).toMatchObject({
@@ -202,6 +232,8 @@ for (const kind of ['ungroup', 'move', 'group', 'title', 'remove', 'activate', '
     expect(await journal(f.options)).toEqual(raw);
     await evidence(info, 'seeded-journal-evidence', {
       kind,
+      committed,
+      readiness: 'blocked',
       record: raw,
       preserved: await journal(f.options),
       before,
@@ -233,19 +265,32 @@ for (const phase of ['placed', 'removed', 'settled-activate', 'settled-focus']) 
   }));
 }
 
-async function arm(options: Page, at: string, fault?: string, presentation = false) {
+async function arm(options: Page, at: string, fault?: string, presentation = false, foreground?: Foreground) {
   const token = crypto.randomUUID();
-  await options.evaluate(async ({ controlKey, at, token, fault, presentation }) => {
-    await chrome.storage.session.remove(['chromeReHomeFixtureReached', 'chromeReHomeFixtureDone']);
-    await chrome.storage.session.set({ [controlKey]: { at, token, presentation, ...(fault ? { fault } : {}) } });
-  }, { controlKey, at, token, fault, presentation });
+  await options.evaluate(async ({ controlKey, at, token, fault, presentation, foreground }) => {
+    await chrome.storage.session.remove(['chromeReHomeFixtureReached', 'chromeReHomeFixtureDone', 'chromeReHomeFixtureAdmission']);
+    await chrome.storage.session.set({ [controlKey]: { at, token, presentation, ...(fault ? { fault } : {}), ...(foreground ? { foreground } : {}) } });
+  }, { controlKey, at, token, fault, presentation, foreground });
   return token;
 }
 
 async function reached(options: Page, token: string) {
-  await expect.poll(() => options.evaluate(async () => ((await chrome.storage.session.get('chromeReHomeFixtureReached')).chromeReHomeFixtureReached as {
-    token?: string;
-  } | undefined)?.token)).toBe(token);
+  let state: { reached?: {token: string}; admission?: Admission } = {};
+  await expect.poll(async () => {
+    state = await options.evaluate(async () => {
+      const stored = await chrome.storage.session.get(['chromeReHomeFixtureReached', 'chromeReHomeFixtureAdmission']);
+      return {reached: stored.chromeReHomeFixtureReached, admission: stored.chromeReHomeFixtureAdmission} as {reached?: {token:string}; admission?: Admission};
+    });
+    return state.reached?.token === token || state.admission?.token === token && state.admission.mismatch;
+  }).toBe(true);
+  // Throw outside expect.poll: a mismatch is terminal, never a retried assertion.
+  expect(gateOutcome(token, state.reached, state.admission)).toBe(true);
+}
+
+async function foregroundExpectation(f: Trial, tabId: number, windowId: number): Promise<Foreground> {
+  const previousDocumentId = await f.options.evaluate(async tabId =>
+    (await chrome.webNavigation.getFrame({tabId, frameId:0}))!.documentId, tabId);
+  return {tabId, windowId, previousDocumentId, url: origin + '/target'};
 }
 
 async function release(options: Page) {
@@ -321,9 +366,8 @@ for (const phase of phases) {
     const wake = await f.context.newPage();
     await wake.goto(origin + '/wake?to=/new-wake');
     await wake.getByRole('link').click();
-    await worker.restarted(info);
+    await worker.restarted(info, {page: wake, url: origin + '/new-wake'});
     if (raw.pending) {
-      await new Promise(done => setTimeout(done, 1000));
       expect(await journal(f.options)).toEqual(raw);
     } else
       await expect.poll(() => journal(f.options)).toBeUndefined();
@@ -362,9 +406,8 @@ for (const phase of [
     const wake = await f.context.newPage();
     await wake.goto(origin + '/wake?to=/wake-target');
     await wake.getByRole('link').click();
-    await worker.restarted(info);
+    await worker.restarted(info, {page: wake, url: origin + '/wake-target'});
     if (raw.pending) {
-      await new Promise(done => setTimeout(done, 1000));
       expect(await journal(f.options)).toEqual(raw);
     } else
       await expect.poll(() => journal(f.options)).toBeUndefined();
@@ -452,9 +495,8 @@ for (const phase of ['pending:move:4', 'settled:move:4', 'verified:move:4']) {
     const wake = await f.context.newPage();
     await wake.goto(origin + '/wake?to=/wake-target');
     await wake.getByRole('link').click();
-    await worker.restarted(info);
+    await worker.restarted(info, {page: wake, url: origin + '/wake-target'});
     if (raw.pending) {
-      await new Promise(done => setTimeout(done, 1000));
       expect(await journal(f.options)).toEqual(raw);
     } else
       await expect.poll(() => journal(f.options)).toBeUndefined();
@@ -482,25 +524,30 @@ for(const phase of ['pending:activate:4','settled:activate:4','verified:activate
         await chrome.tabs.update(winnerId,{active:true});await chrome.windows.update(source,{focused:true});return {source,spare:spare.id!};
       },{winnerId:s.winnerId,origin});
       await expect.poll(async()=>(await tabs(f.options)).find(t=>t.id===setup.spare)?.status).toBe('complete');
-      const token=await arm(f.options,phase,undefined,true);
+      const token=await arm(f.options,phase,undefined,true,await foregroundExpectation(f,s.winnerId,setup.source));
       const beforeTrigger = await f.options.evaluate(async()=>({windows:await chrome.windows.getAll({populate:true,windowTypes:['normal']}),journal:(await chrome.storage.session.get('chromeReHomeReplacementJournal')).chromeReHomeReplacementJournal}));
       await evidence(info,'foreground-preconditions',{setup,winnerId:s.winnerId,state:beforeTrigger});
       expect(beforeTrigger.windows.filter(w=>w.focused).map(w=>w.id)).toEqual([setup.source]);
       expect(beforeTrigger.windows.find(w=>w.id===setup.source)?.tabs?.filter(t=>t.active).map(t=>t.id)).toEqual([s.winnerId]);
+      const osBeforeTrigger = await ownedBrowserFocus(f.context);
+      await evidence(info,'foreground-os-before-trigger',osBeforeTrigger);
       await s.winner.getByRole('link').click();
       try { await reached(f.options,token); }
       catch (error) {
-        await evidence(info,'foreground-gate-failure',{phase,observations:await f.worker.evaluate(()=>Reflect.get(globalThis,'__presentationObservations')),state:await f.options.evaluate(async()=>({windows:await chrome.windows.getAll({populate:true,windowTypes:['normal']}),storage:await chrome.storage.session.get(null)}))});
+        await evidence(info,'foreground-gate-failure',{phase,osBeforeTrigger,osAtFailure:await ownedBrowserFocus(f.context),observations:await f.worker.evaluate(()=>Reflect.get(globalThis,'__presentationObservations')),state:await f.options.evaluate(async()=>({windows:await chrome.windows.getAll({populate:true,windowTypes:['normal']}),storage:await chrome.storage.session.get(null)}))});
         throw error;
       }
       const raw=await journal(f.options) as ReplacementJournal;expect(raw.version).toBe(2);
       const before=await tabs(f.options);expect(before.filter(t=>s.duplicateIds.includes(t.id!))).toHaveLength(2);
+      const admissionObservations=await f.worker.evaluate(()=>Reflect.get(globalThis,'__presentationObservations'));
       const stopped=await stop(f);await f.options.evaluate(key=>chrome.storage.session.remove(key),controlKey);
-      const wake=await f.context.newPage();await wake.goto(origin+'/wake?to=/unique-wake');await wake.getByRole('link').click();await stopped.restarted(info);
-      if(raw.pending){await new Promise(done=>setTimeout(done,250));expect(await journal(f.options)).toEqual(raw);}
+      const wake=await f.context.newPage();await wake.goto(origin+'/wake?to=/unique-wake');await wake.getByRole('link').click();await stopped.restarted(info,{page:wake,url:origin+'/unique-wake'});
+      if(raw.pending){expect(await journal(f.options)).toEqual(raw);}
       else await expect.poll(()=>journal(f.options)).toBeUndefined();
       expect((await tabs(f.options)).filter(t=>s.duplicateIds.includes(t.id!))).toHaveLength(2);
       await evidence(info,'foreground-phase',{phase,record:raw,version:f.context.browser()!.version(),before,after:await tabs(f.options),nativeOutstanding:false,
+        admission:await f.options.evaluate(async()=> (await chrome.storage.session.get('chromeReHomeFixtureAdmission')).chromeReHomeFixtureAdmission),
+        observations:admissionObservations,
         gateMeaning:phase.startsWith('presentation:')?'native already fulfilled, wrapper held before settlement':'durable write gate; not proof of interruption inside Chrome API'});
     },true);
   });
@@ -529,14 +576,23 @@ for (const mode of ['foreground', 'background', 'changed-url'] as const) {
         schemaVersion: 4, enabled: true, groupingRules: [{ enabled: true, pattern: origin + '/target', group: 'Target' }], duplicateRules: []
       } }), origin);
       await expect(f.options.getByRole('status')).toContainText('enabled');
-      const token = await arm(f.options, 'placement:native-fulfilled:move:2', undefined, true);
+      const token = await arm(f.options, 'placement:native-fulfilled:move:2', undefined, true,
+        mode === 'background' ? undefined : await foregroundExpectation(f, setup.before, setup.source));
       const initial = await f.options.evaluate(async () => chrome.windows.getAll({ populate: true, windowTypes: ['normal'] }));
       expect(initial.filter(w => w.focused).map(w => w.id)).toEqual([setup.source]);
       expect(initial.find(w => w.id === setup.source)?.tabs?.filter(t => t.active).map(t => t.id)).toEqual([setup.before]);
+      const osBeforeTrigger = await ownedBrowserFocus(f.context);
+      await evidence(info,'history-os-before-trigger',osBeforeTrigger);
       const opened = mode === 'background' ? f.context.waitForEvent('page') : undefined;
       await before.getByRole('link').click(mode === 'background' ? { modifiers: ['Meta'] } : {});
       const incoming = opened ? await opened : before;
-      await reached(f.options, token);
+      try { await reached(f.options, token); }
+      catch (error) {
+        await evidence(info,'history-gate-failure',{mode,osBeforeTrigger,osAtFailure:await ownedBrowserFocus(f.context),
+          observations:await f.worker.evaluate(()=>Reflect.get(globalThis,'__presentationObservations')),
+          storage:await f.options.evaluate(()=>chrome.storage.session.get(null))});
+        throw error;
+      }
       const winner = (await tabs(f.options)).find(t => t.url === origin + '/target' && t.id !== setup.old)!;
       await f.worker.evaluate(tabId => {
         chrome.webNavigation.onHistoryStateUpdated.addListener(details => {

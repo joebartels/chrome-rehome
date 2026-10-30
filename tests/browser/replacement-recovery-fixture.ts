@@ -12,18 +12,26 @@ import { createCoordinator } from '../../src/background/coordinator';
 import { createPlacementConsumer } from '../../src/background/placement';
 import { registerEvents } from '../../src/background/register-events';
 
-type Control = { at: string; token: string; release?: boolean; presentation?: boolean; fault?: 'remove-reject' | 'settled-write' };
+import { observeAdmission, phaseBelongsToAdmission, type Admission, type Foreground, type Incoming, type Completion } from './recovery-observations';
+
+type Control = { at: string; token: string; release?: boolean; presentation?: boolean; foreground?: Foreground; fault?: 'remove-reject' | 'settled-write' };
 const controlKey = 'chromeReHomeFixtureControl';
 const reachedKey = 'chromeReHomeFixtureReached';
 const doneKey = 'chromeReHomeFixtureDone';
 const used = new Set<string>();
+const admissions = new Map<string, Admission>();
+let incoming: Incoming | undefined;
+let presentationReads = 0;
+const completion: Completion = {realm: crypto.randomUUID(), initialized: false, handled: []};
+Object.defineProperty(globalThis, '__recoveryCompletion', {value: completion});
 let placed = false;
 async function control(): Promise<Control | undefined> { return (await chrome.storage.session.get(controlKey))[controlKey] as Control | undefined; }
 async function hold(label: string): Promise<void> {
   const config = await control();
   if (!config || config.at !== label || used.has(config.token)) return;
+  if (config.foreground && !phaseBelongsToAdmission(config.token, incoming, admissions.get(config.token))) return;
   used.add(config.token);
-  await chrome.storage.session.set({ [reachedKey]: { label, token: config.token } });
+  await chrome.storage.session.set({ [reachedKey]: { label, token: config.token, timestamp: Date.now(), incoming } });
   if (config.release) return;
   await new Promise<void>(resolve => {
     const changed = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
@@ -42,7 +50,13 @@ async function hold(label: string): Promise<void> {
 }
 const observations: unknown[] = [];
 Object.defineProperty(globalThis, '__presentationObservations', {value:observations});
-function record(value: unknown) { observations.push(value); if(observations.length > 1000) observations.shift(); }
+function record(value: Record<string, unknown>) { observations.push({timestamp: Date.now(), ...value}); if(observations.length > 300) observations.shift(); }
+chrome.windows.onFocusChanged.addListener(windowId => {
+  const timestamp = Date.now();
+  const event = incoming;
+  const operation = previous;
+  void control().then(config => record({timestamp, token: config?.token, focusChanged: windowId, incoming: event, operation}));
+});
 const native = createPlacementAdapter(chrome);
 let moveCount = 0;
 const port = {
@@ -54,8 +68,18 @@ const port = {
   // Legacy structural sequence fixtures deliberately use unknown attention. New
   // headed presentation fixtures explicitly opt into the production native reader.
   async readPresentation() {
-    if (!(await control())?.presentation) return;
-    const state = await native.readPresentation(); record({attention:state ?? null}); return state;
+    const config = await control();
+    if (!config?.presentation) return;
+    const firstRead = presentationReads++ === 0;
+    const event = incoming;
+    const state = await native.readPresentation();
+    record({token: config.token, attention: state ?? null, incoming: event, firstRead, operation: previous});
+    const admission = event && observeAdmission(config.token, config.foreground, event, state, firstRead);
+    if (admission && !admissions.has(config.token)) {
+      admissions.set(config.token, admission);
+      await chrome.storage.session.set({chromeReHomeFixtureAdmission: admission});
+    }
+    return state;
   },
   async activateTab(id: number) { await native.activateTab(id); await hold('presentation:native-fulfilled:activate'); },
   async focusWindow(id: number) { await native.focusWindow(id); await hold('presentation:native-fulfilled:focus'); },
@@ -96,7 +120,20 @@ const tracker = createNavigationTracker();
 const diagnostics = createDiagnostics();
 const consumer = createPlacementConsumer({ tracker, port, journal, diagnostics });
 const coordinator = createCoordinator({ tracker, diagnostics, recovery, config: createConfigRepository(createChromeConfigStorage(chrome)), queue: createOperationQueue(),
-  consume: async (event, context) => { await consumer(event, context); await chrome.storage.session.set({ [doneKey]: crypto.randomUUID() }); }
+  consume: async (event, context) => {
+    incoming = event;
+    presentationReads = 0;
+    try { await consumer(event, context); await chrome.storage.session.set({ [doneKey]: crypto.randomUUID() }); }
+    finally { incoming = undefined; }
+  }
 });
-registerEvents(chrome, coordinator, () => {});
-void coordinator.initialize();
+const initialized = coordinator.initialize().then(() => { completion.initialized = true; });
+registerEvents(chrome, {
+  ...coordinator,
+  async handle(event) {
+    await coordinator.handle(event);
+    await initialized;
+    completion.handled.push({...event});
+    if (completion.handled.length > 100) completion.handled.shift();
+  }
+}, () => {});
