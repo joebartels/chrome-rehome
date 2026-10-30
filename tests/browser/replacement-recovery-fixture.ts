@@ -14,7 +14,7 @@ import { registerEvents } from '../../src/background/register-events';
 
 import { observeAdmission, phaseBelongsToAdmission, type Admission, type Foreground, type Incoming, type Completion } from './recovery-observations';
 
-type Control = { at: string; token: string; release?: boolean; presentation?: boolean; foreground?: Foreground; fault?: 'remove-reject' | 'settled-write' };
+type Control = { at: string; token: string; release?: boolean; presentation?: boolean; foreground?: Foreground; navigation?: Pick<Incoming, 'tabId' | 'url'>; fault?: 'remove-reject' | 'settled-write' };
 const controlKey = 'chromeReHomeFixtureControl';
 const reachedKey = 'chromeReHomeFixtureReached';
 const doneKey = 'chromeReHomeFixtureDone';
@@ -29,6 +29,7 @@ async function control(): Promise<Control | undefined> { return (await chrome.st
 async function hold(label: string): Promise<void> {
   const config = await control();
   if (!config || config.at !== label || used.has(config.token)) return;
+  if (config.navigation && (incoming?.kind !== 'committed' || incoming.tabId !== config.navigation.tabId || incoming.url !== config.navigation.url)) return;
   if (config.foreground && !phaseBelongsToAdmission(config.token, incoming, admissions.get(config.token))) return;
   used.add(config.token);
   await chrome.storage.session.set({ [reachedKey]: { label, token: config.token, timestamp: Date.now(), incoming } });
@@ -83,7 +84,12 @@ const port = {
   },
   async activateTab(id: number) { await native.activateTab(id); await hold('presentation:native-fulfilled:activate'); },
   async focusWindow(id: number) { await native.focusWindow(id); await hold('presentation:native-fulfilled:focus'); },
-  async read() { const snapshot = await native.read(); if (placed) await hold('closure:snapshot'); return snapshot; },
+  async read() {
+    const snapshot = await native.read();
+    await hold('placement:snapshot');
+    if (placed) await hold('closure:snapshot');
+    return snapshot;
+  },
   async readDocument(id: number) { const document = await native.readDocument(id); if (placed) await hold('closure:document'); return document; },
   async removeTab(id: number) {
     const config = await control();

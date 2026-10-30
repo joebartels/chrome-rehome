@@ -15,7 +15,10 @@ export function gateOutcome(token: string, reached: {token: string} | undefined,
 }
 export type Completion = { realm: string; initialized: boolean; handled: Incoming[] };
 export function recoveryHandled(oldRealm: string, expected: Incoming, completion: Completion): boolean {
-  return completion.realm !== oldRealm && completion.initialized && !!expected.documentId && completion.handled.some(event =>
+  return completion.realm !== oldRealm && completedNavigation(expected, completion);
+}
+function completedNavigation(expected: Incoming, completion: Completion): boolean {
+  return completion.initialized && expected.kind === 'committed' && !!expected.documentId && completion.handled.some(event =>
     event.kind === 'committed' && event.tabId === expected.tabId && event.url === expected.url && event.documentId === expected.documentId);
 }
 
@@ -23,4 +26,8 @@ export function phaseBelongsToAdmission(token: string, incoming: Incoming | unde
   return admission?.token === token && !!incoming && incoming.tabId === admission.incoming.tabId
     && incoming.url === admission.incoming.url && incoming.documentId === admission.incoming.documentId
     && incoming.kind === admission.incoming.kind;
+}
+
+export function sameRealmHandled(realm: string, expected: Incoming, completion: Completion): boolean {
+  return completion.realm === realm && completedNavigation(expected, completion);
 }

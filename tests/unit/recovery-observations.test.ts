@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gateOutcome, observeAdmission, recoveryHandled, phaseBelongsToAdmission, type Attention } from '../browser/recovery-observations';
+import { gateOutcome, observeAdmission, recoveryHandled, sameRealmHandled, phaseBelongsToAdmission, type Attention } from '../browser/recovery-observations';
 const expected = {windowId: 7, tabId: 12, url: 'https://fixture.test/target', previousDocumentId: 'old'};
 const incoming = {tabId: 12, url: expected.url, documentId: 'new', kind: 'committed'};
 const foreground: Attention = {focusedWindowId: 7, activeTabs: [{windowId: 7, tabId: 12}]};
@@ -52,5 +52,21 @@ describe('new realm recovery completion', () => {
       {realm:'new-realm', initialized:false, handled:[incoming]},
       ...[{...incoming, documentId:'old'}, {...incoming, tabId:99}, {...incoming, url:'https://fixture.test/other'}, {...incoming,kind:'history'}].map(event => ({realm:'new-realm',initialized:true,handled:[event]}))
     ]) expect(recoveryHandled('old-realm', incoming, state)).toBe(false);
+  });
+});
+
+describe('same realm pinned navigation completion', () => {
+  it('waits for exact handler acknowledgment without accepting a replacement worker', () => {
+    const state = { realm: 'original', initialized: true, handled: [] as typeof incoming[] };
+    expect(sameRealmHandled('original', incoming, state)).toBe(false);
+    state.handled.push(incoming);
+    expect(sameRealmHandled('original', incoming, state)).toBe(true);
+    expect(sameRealmHandled('original', incoming, { ...state, realm: 'restarted' })).toBe(false);
+  });
+  it('rejects uninitialized, missing-document and unrelated completion observations', () => {
+    expect(sameRealmHandled('original', incoming, { realm: 'original', initialized: false, handled: [incoming] })).toBe(false);
+    expect(sameRealmHandled('original', { tabId: incoming.tabId, url: incoming.url, kind: incoming.kind }, { realm: 'original', initialized: true, handled: [incoming] })).toBe(false);
+    for (const event of [{ ...incoming, tabId: 99 }, { ...incoming, url: 'https://fixture.test/other' }, { ...incoming, documentId: 'old' }, { ...incoming, kind: 'history' }])
+      expect(sameRealmHandled('original', incoming, { realm: 'original', initialized: true, handled: [event] })).toBe(false);
   });
 });

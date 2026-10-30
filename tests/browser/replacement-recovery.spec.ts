@@ -1,4 +1,4 @@
-import { gateOutcome, recoveryHandled, type Admission, type Completion, type Foreground } from './recovery-observations';
+import { gateOutcome, recoveryHandled, sameRealmHandled, type Admission, type Completion, type Foreground } from './recovery-observations';
 import { activateOwnedBrowser, ownedBrowserFocus } from './owned-browser-focus';
 import { test, expect, chromium, type BrowserContext, type Page, type Worker, type TestInfo } from '@playwright/test';
 import { createServer } from 'node:http';
@@ -624,3 +624,59 @@ for (const mode of ['foreground', 'background', 'changed-url'] as const) {
     }, true);
   });
 }
+
+// Copied-worker companion to the untouched-dist pinned state observation. The
+// only synchronization writes release a fixture gate; none navigate or revoke work.
+test('instrumented pinned incoming awaits held handler completion and retains exact order groups and older survivors', async ({}, info) => trial(true, async f => {
+  const anchor = await f.context.newPage(); await anchor.goto(origin + '/anchor-before');
+  const anchorId = (await tabs(f.options)).find(t => t.url === anchor.url())!.id!;
+  await anchor.goto(origin + '/target');
+  const older = await f.context.newPage(); await older.goto(origin + '/older-before');
+  const olderId = (await tabs(f.options)).find(t => t.url === older.url())!.id!;
+  await older.goto(origin + '/target');
+  const manual = await f.options.evaluate(async ids => {
+    const group = await chrome.tabs.group({ tabIds: [ids[0]!, ids[1]!] });
+    await chrome.tabGroups.update(group, { title: 'Manual' }); return group;
+  }, [anchorId, olderId]);
+  const winner = await f.context.newPage(); await winner.goto(origin + '/before');
+  const winnerId = (await tabs(f.options)).find(t => t.url === winner.url())!.id!;
+  await f.options.evaluate(id => chrome.tabs.update(id, { pinned: true, active: true }), winnerId);
+  const spare = await f.context.newPage(); await spare.goto(origin + '/unrelated');
+  const before = await tabs(f.options);
+  await config(f.options, 'Configured');
+  const realm = (await f.worker.evaluate(() => Reflect.get(globalThis, '__recoveryCompletion') as Completion)).realm;
+  const token = await arm(f.options, 'placement:snapshot');
+  await f.options.evaluate(async ({ controlKey, winnerId, url }) => {
+    const control = (await chrome.storage.session.get(controlKey))[controlKey] as { at: string; token: string };
+    await chrome.storage.session.set({ [controlKey]: { ...control, navigation: { tabId: winnerId, url } } });
+  }, { controlKey, winnerId, url: origin + '/target' });
+  await winner.getByRole('link').click(); await winner.waitForURL(origin + '/target');
+  await reached(f.options, token);
+  const identity = await f.options.evaluate(async tabId => {
+    const frame = await chrome.webNavigation.getFrame({ tabId, frameId: 0 });
+    return { tabId, url: frame!.url, documentId: frame!.documentId, kind: 'committed' };
+  }, winnerId);
+  const held = await f.options.evaluate(async () => (await chrome.storage.session.get('chromeReHomeFixtureReached')).chromeReHomeFixtureReached as { incoming: { tabId: number; url: string; documentId?: string; kind: string } });
+  expect(held.incoming).toMatchObject(identity);
+  const pending = await f.worker.evaluate(() => Reflect.get(globalThis, '__recoveryCompletion') as Completion);
+  expect(pending.realm).toBe(realm); expect(pending.initialized).toBe(true);
+  expect(sameRealmHandled(realm, identity, pending)).toBe(false);
+  await evidence(info, 'pinned-handler-held', { realm, identity, held, pending });
+  await release(f.options);
+  let completion: Completion = pending;
+  await expect.poll(async () => {
+    completion = await f.worker.evaluate(() => Reflect.get(globalThis, '__recoveryCompletion') as Completion);
+    return sameRealmHandled(realm, identity, completion);
+  }).toBe(true);
+  const after = await tabs(f.options);
+  const observations = await f.worker.evaluate(() => Reflect.get(globalThis, '__presentationObservations'));
+  // Save even the failing negative-control state before the exact assertions.
+  await evidence(info, 'pinned-handler-completed', { evidenceClass: 'copied-worker handler acknowledgment', chromium: f.context.browser()!.version(), realm, identity, completion, winnerId, anchorId, olderId, manual, before, after, observations });
+  expect(after.map(t => t.id)).toEqual(before.map(t => t.id));
+  expect(after.find(t => t.id === winnerId)).toMatchObject({ pinned: true, groupId: -1, index: 0, url: origin + '/target', windowId: before.find(t => t.id === winnerId)!.windowId });
+  const retainedState = (state: chrome.tabs.Tab[]) => state.filter(t => t.id !== winnerId)
+    .map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url, pinned: t.pinned }));
+  expect(retainedState(after)).toEqual(retainedState(before));
+  expect(after.filter(t => t.url === origin + '/target').map(t => t.id)).toEqual([winnerId, anchorId, olderId]);
+  expect(after.filter(t => t.groupId === manual).map(t => t.id)).toEqual([anchorId, olderId]);
+}));

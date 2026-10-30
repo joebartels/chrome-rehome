@@ -1,6 +1,6 @@
 # 009: Real-browser feature regression suite
 
-Status: complete — local regression gate verified on 2026-10-29 in 0.1.2, with retained native setup/focus uncertainty and manual/runtime limits.
+Status: final-review correction implemented; focused browser validation and scoped re-review pending as of 2026-10-30. Historical complete local invocation passed on 2026-10-29 in 0.1.2, with retained native setup/focus uncertainty and manual/runtime limits.
 
 Depends on: 006, 007, 008
 
@@ -38,3 +38,9 @@ Version0.1.2 passed 1382 portable unit/integration tests in 46 files, typecheck/
 An earlier full invocation failed 159/160 because one external case's options page became about:blank during setup. The original trace/JSON/log and unknown cause remain documented; a passive diagnostic addition, focused pass and final complete pass do not establish a repair. Historical008a attention-null failures likewise remain unexplained. User-reported same/different-desktop foreground success has no captured version and is manual evidence only.
 
 Default processing remains disabled by decision. Hosted CI, Chrome 120/current-stable qualification, trusted omnibox input, actual native menu/emoji visual capture, interactive drag/rejection, automated macOS Spaces and other OS launch routing remain unverified. Task010 and 011 remain TODO; this task does not authorize release/performance work or default activation.
+
+## Final-review correction, 30 October
+
+The pinned-incoming barrier navigation could cancel faulty work by invalidating the captured whole view. That navigation is removed. Untouched dist now supplies an explicitly limited exact-state observation; an existing copied-worker fixture companion awaits the same realm's exact incoming tab/document/URL acknowledgment after the held actual handler resolves, then checks order/groups/IDs and older survivors. This completion evidence is instrumented, not a production hook.
+
+Portable verification passes 1384 tests in 46 files plus typecheck/build/package, with all eight 0.1.2 dist files and metafile unchanged. Inventory is 161 (126 portable, 28 native, 7 headed), distinct from the historical 160-case run. Focused browser validation and delayed-wrong-work sensitivity remain unproven because Chromium's owned GPU/network helpers and browser crashed before worker registration in the isolated attempts. Failed reports are preserved and rejected by the gate; no sensitivity RED or corrected browser pass is inferred. See the verification record for exact evidence and limits. No new build has been handed off; version remains 0.1.2.

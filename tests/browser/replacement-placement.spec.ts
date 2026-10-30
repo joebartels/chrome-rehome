@@ -551,29 +551,27 @@ for (const trigger of ['CDP typed transition', 'changed-URL pushState', 'ordinar
   }));
 }
 
-test('production pinned incoming retains exact order and groups without closing older duplicates', async ({}, info) => fixture(async (context, options) => {
+test('production pinned incoming state observation retains exact order and groups without closing older duplicates', async ({}, info) => fixture(async (context, options) => {
   const anchor = await context.newPage(); await anchor.goto(origin + '/anchor-before'); const anchorId = await id(options, anchor); await anchor.goto(origin + '/target');
   const older = await context.newPage(); await older.goto(origin + '/older-before'); const olderId = await id(options, older); await older.goto(origin + '/target');
   const manual = await options.evaluate(async ids => { const group = await chrome.tabs.group({ tabIds: [ids[0]!, ids[1]!] }); await chrome.tabGroups.update(group, { title: 'Manual' }); return group; }, [anchorId, olderId]);
   const incoming = await context.newPage(); await incoming.goto(origin + '/before'); const incomingId = await id(options, incoming);
   await options.evaluate(id => chrome.tabs.update(id, { pinned: true, active: true }), incomingId);
   const spare = await context.newPage(); await spare.goto(origin + '/unrelated');
-  // A later admitted unique navigation completes real grouping after the excluded navigation.
-  const barrier = await context.newPage(); await barrier.goto(origin + '/barrier-before'); const barrierId = await id(options, barrier);
+  // Untouched-dist state observation only: page load is not handler completion.
+  // The copied-worker companion waits for this incoming handler without invalidating its view.
   const before = await tabs(options);
   await config(options, 'Configured');
   await incoming.getByRole('link').click(); await incoming.waitForURL(origin + '/target');
-  await barrier.goto(origin + '/barrier-complete');
-  await expect.poll(async () => (await tabs(options)).find(t => t.id === barrierId)?.groupId).not.toBe(-1);
   const after = await tabs(options);
   await retain(options, before.map(t => t.id!));
   expect(after.map(t => t.id)).toEqual(before.map(t => t.id));
   expect(after.find(t => t.id === incomingId)).toMatchObject({ pinned: true, groupId: -1, index: 0, url: origin + '/target', windowId: before.find(t => t.id === incomingId)!.windowId });
-  expect(after.filter(t => t.id !== incomingId && t.id !== barrierId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })))
-    .toEqual(before.filter(t => t.id !== incomingId && t.id !== barrierId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })));
+  expect(after.filter(t => t.id !== incomingId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })))
+    .toEqual(before.filter(t => t.id !== incomingId).map(t => ({ id: t.id, index: t.index, groupId: t.groupId, windowId: t.windowId, url: t.url })));
   expect(after.filter(t => t.url === origin + '/target').map(t => t.id)).toEqual([incomingId, anchorId, olderId]);
   expect(after.filter(t => t.groupId === manual).map(t => t.id)).toEqual([anchorId, olderId]);
-  await saveProtectionEvidence(info, 'pinned-incoming', { browser: context.browser()!.version(), incomingId, anchorId, olderId, before, after });
+  await saveProtectionEvidence(info, 'pinned-incoming', { evidenceClass: 'untouched-dist state observation; no handler completion acknowledgment', browser: context.browser()!.version(), incomingId, anchorId, olderId, before, after });
 }));
 
 test('production pinned older duplicate is excluded while eligible duplicates supply manual placement and close', async ({}, info) => fixture(async (context, options) => {

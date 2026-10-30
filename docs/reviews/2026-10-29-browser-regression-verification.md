@@ -10,16 +10,16 @@ Foreground fixture arms name the source window, expected incoming winner, target
 
 All five fixed recovery absence sleeps are removed. Seeded production quarantine waits for authorized options `get-status` to report blocked and verifies two actual committed documents before byte-preserved journal/survivor checks. Instrumented phase recovery waits for a different realm, completed initialization and an acknowledgment after `coordinator.handle` resolves for the exact wake tab/document/URL. Original phase, document, survivor and journal assertions remain. Test instrumentation is absent from dist.
 
-## Results
+## Historical results before the final-review correction
 
 | Check | Observed result |
 | --- | --- |
-| Final portable unit/integration | 1382 tests in 46 files passed. |
+| Historical portable unit/integration | 1382 tests in 46 files passed. |
 | Typecheck/build/strict package | All passed. |
-| Final complete Playwright invocation | 160/160 passed: native-macos 28, portable 125, headed 7. |
+| Historical complete Playwright invocation | 160/160 passed: native-macos 28, portable 125, headed 7. |
 | Strict JSON checker | All three projects passed; zero skips/retries/flaky/unexpected/runner errors. |
 
-The final changed-harness invocation ran 2026-10-30T03:36:01.161Z for 174.428s. Retained final evidence: `browser-final.log`, `browser-final.json`, `browser-final-check.log`, `browser-final-results/`. `commands.json` records exact commands and all earlier invocations; `browser-summary.json` records both full-run outcomes. Completion means this local regression gate passed with the limits and original failed-run evidence below; it does not establish a native startup/focus repair.
+The final changed-harness invocation ran 2026-10-30T03:36:01.161Z for 174.428s. Retained final evidence: `browser-final.log`, `browser-final.json`, `browser-final-check.log`, `browser-final-results/`. `commands.json` records exact commands and all earlier invocations; `browser-summary.json` records both full-run outcomes. This was a single successful historical invocation; final review later found a pinned-incoming synchronization gap. It does not establish a native startup/focus repair or validate the subsequent correction.
 
 Runtime: macOS 27.0.1 arm64; Node 24.22.1; Playwright 1.64.1; bundled Chromium 156.0.8078.4. One worker, retries 0, isolated owned profiles. JSON reports, stdout/stderr, attachments and failure traces are retained under `.superpowers/sdd/2026-10-29-browser-regression/task-2-evidence/` in the repository; the full implementation report is `.superpowers/sdd/2026-10-29-browser-regression/task-2-report.md`.
 
@@ -43,3 +43,13 @@ Hosted Linux CI execution, Chrome 120/current-stable runtime certification, trus
 4. Pause again when finished. Cross-desktop behavior has user-reported manual success; capture the actual loaded version/browser when repeating a manual Spaces trial.
 
 Do not begin 010/011 or enable processing by default as part of this handoff.
+
+## 30 October final-review correction — validation pending
+
+The pinned-incoming test's later grouping navigation could advance the navigation tracker's global revision and cancel the very operation under test. The corrected untouched-dist case reports only its immediate exact retained-state observation. Completion evidence is supplied by one clearly labeled copied-worker companion: it holds the actual initial placement snapshot read for the incoming tab/URL, checks the matching committed tab/document/URL has not been acknowledged in the original realm, releases only the fixture gate, then awaits that realm's acknowledgment after `coordinator.handle` resolves. It asserts exact retained IDs/order/groups and older survivors without intervening navigation. This is an evidence-class adjustment, not a production fix.
+
+Helper RED was 1 failed/9 passed for missing same-realm completion, followed by 10/10 GREEN. Full portable tests pass 1384/46; final typecheck, build and package checks pass. The initial typecheck's three test-only typing errors and correction are retained. All eight distribution files and the metafile are byte-identical to the verified 0.1.2 candidate. Current collection is 161 cases: 126 portable, 28 native-macos, 7 headed; no 161-case full-run claim is made.
+
+Browser validation remains blocked at startup. The initial temporary delayed-wrong-closure sensitivity attempt never reached an extension worker. A launch diagnostic and one direct Node execution diagnostic also ended before worker registration: owned GPU/network helpers repeatedly exited signal 5 and the browser exited SIGTRAP. The first warning is Crashpad's out-of-range numeric cast; no causal explanation is established. These failed JSON/logs/traces are preserved and rejected by the strict checker. They are not meaningful sensitivity RED and do not demonstrate the pinned assertion yet. No automatic retry, re-navigation, alternate flags, security change, or broad native rerun was used. Focused packaged/companion/shared-barrier validation and actual delayed-wrong-work sensitivity remain required.
+
+Correction raw evidence: `EXTERNAL_EVIDENCE/task009-final-fix-evidence`; exact arguments/environment/exit codes are in `commands.json`. Existing Task2 raw 160/160 and failed 159/160 artifacts are unchanged and remain separate from this correction.
