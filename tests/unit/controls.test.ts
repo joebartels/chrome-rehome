@@ -9,12 +9,13 @@ const changed = { groupingRules: [{ enabled: true, pattern: 'https://example.com
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 function harness() {
   let raw: unknown = initial; let notify = () => {}; let runtime: 'checking' | 'ready' | 'blocked' = 'ready';
+  let reads = 0;
   let read = async (): Promise<unknown> => raw;
   let write = async (value: Config) => { raw = value; };
   const writes: Config[] = [];
-  const config = createConfigRepository({ read: () => read(), write: value => { writes.push(value); return write(value); }, subscribe: listener => { notify = listener; return () => {}; } });
+  const config = createConfigRepository({ read: () => { ++reads; return read(); }, write: value => { writes.push(value); return write(value); }, subscribe: listener => { notify = listener; return () => {}; } });
   const service = createControlService({ ...protectionFixture(), config, workerId: 'worker', runtime: () => runtime });
-  return { service, writes, config, get raw() { return raw; }, setRaw(value: unknown) { raw = value; },
+  return { service, writes, config, get raw() { return raw; }, get reads() { return reads; }, setRaw(value: unknown) { raw = value; },
     setRead(value: typeof read) { read = value; }, setWrite(value: typeof write) { write = value; },
     setRuntime(value: typeof runtime) { runtime = value; }, external(value: unknown) { raw = value; notify(); } };
 }
@@ -137,6 +138,95 @@ test('resume rejects a newer external publication during its preflight read', as
   const resume = h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: true }); await flush();
   h.setRead(async () => h.raw); h.external({ ...initial, ...changed, enabled: false }); await flush(); gate.resolve(initial);
   expect((await resume).kind).toBe('conflict'); expect(h.writes).toHaveLength(1); expect(h.service.getStatus().phase).toBe('paused');
+});
+async function writeWithOverlappingVerification(latest: Config, command: 'resume' | 'save-rules' = 'resume') {
+  const h = harness();
+  if (command === 'resume') h.setRaw({ ...initial, enabled: false });
+  await h.service.initialize();
+
+  const verification = deferred<unknown>();
+  const refreshed = deferred<unknown>();
+  h.setRead(async () => {
+    h.setRead(() => verification.promise);
+    return h.raw;
+  });
+  const expected = h.service.getStatus().version;
+  const operation = h.service.handle(command === 'resume'
+    ? { kind: 'set-enabled', expected, enabled: true }
+    : { kind: 'save-rules', expected, baseRules: rules, rules: changed });
+  await flush();
+  const written = command === 'resume' ? initial : { ...initial, ...changed };
+  expect(h.raw).toEqual(written);
+
+  h.setRead(() => refreshed.promise);
+  h.external(latest);
+  verification.resolve(written);
+  await flush();
+  return { h, operation, refreshed };
+}
+test.each([
+  { change: 'the saved value', latest: initial, kind: 'ok', phase: 'active' },
+  { change: 'a newer pause', latest: { ...initial, enabled: false }, kind: 'unavailable', phase: 'unavailable' },
+  { change: 'newer rules', latest: { ...initial, ...changed }, kind: 'unavailable', phase: 'unavailable' },
+])('resume verifies $change when a storage event supersedes its verification read', async ({ latest, kind, phase }) => {
+  const { h, operation: resume, refreshed } = await writeWithOverlappingVerification(latest);
+  expect(h.service.getStatus().phase).toBe('checking');
+  expect(h.service.capture()).toBeUndefined();
+  refreshed.resolve(latest);
+
+  expect(await resume).toMatchObject({ kind, status: { phase, savedEnabled: latest.enabled } });
+  expect(h.reads).toBe(4);
+});
+test('resume stops waiting when another storage event supersedes the pending verification read', async () => {
+  const { h, operation: resume, refreshed } = await writeWithOverlappingVerification(initial);
+  let resumeReply: Awaited<typeof resume> | undefined;
+  void resume.then(result => { resumeReply = result; });
+
+  const paused = { ...initial, enabled: false };
+  h.setRead(async () => h.raw);
+  h.external(paused);
+  await flush();
+  expect(h.config.getCurrent()?.state).toMatchObject({ kind: 'ready', config: paused });
+  expect(resumeReply).toMatchObject({ kind: 'unavailable', status: { phase: 'unavailable' } });
+  expect(h.service.capture()).toBeUndefined();
+  expect(h.reads).toBe(5);
+
+  refreshed.resolve(initial);
+  await flush();
+  expect(h.service.getStatus()).toMatchObject({ phase: 'unavailable', savedEnabled: false });
+});
+test.each(['resume', 'save-rules'] as const)('a newer pause can persist while %s verification still has an outstanding read', async command => {
+  const written = command === 'resume' ? initial : { ...initial, ...changed };
+  const { h, operation, refreshed } = await writeWithOverlappingVerification(written, command);
+  h.setRead(async () => h.raw);
+  const pause = h.service.handle({ kind: 'set-enabled', expected: h.service.getStatus().version, enabled: false });
+  let pauseReply: Awaited<typeof pause> | undefined;
+  void pause.then(result => { pauseReply = result; });
+  expect(h.service.capture()).toBeUndefined();
+
+  await flush();
+  expect(h.writes.map(value => value.enabled)).toEqual([true, false]);
+  await flush();
+  expect(pauseReply).toMatchObject({ kind: 'ok', status: { phase: 'paused', savedEnabled: false } });
+  expect((await operation).kind).toBe('unavailable');
+  expect(h.raw).toEqual({ ...written, enabled: false });
+  expect(h.reads).toBe(6);
+
+  refreshed.resolve(written);
+  await flush();
+  expect(h.service.getStatus().phase).toBe('paused');
+  expect(h.service.capture()).toBeUndefined();
+});
+test('disposing controls settles resume during an outstanding verification read', async () => {
+  const { h, operation: resume, refreshed } = await writeWithOverlappingVerification(initial);
+  let resumeReply: Awaited<typeof resume> | undefined;
+  void resume.then(result => { resumeReply = result; });
+  h.service.dispose();
+
+  await flush();
+  expect(resumeReply).toMatchObject({ kind: 'unavailable', status: { phase: 'unavailable' } });
+  expect(h.reads).toBe(4);
+  refreshed.resolve(initial);
 });
 test('resume rechecks recovery readiness after preflight storage await', async () => {
   const h = harness(); await h.service.initialize();

@@ -14,6 +14,7 @@ export function createConfigRepository(storage: ConfigStorage) {
   let generation = 0;
   let disposed = false;
   let latestResult: { operation: number; state: ConfigState } | undefined;
+  let pendingRead: number | undefined;
 
   function publish(state: ConfigState, operation: number): void {
     if (latestResult && operation < latestResult.operation) return;
@@ -29,6 +30,7 @@ export function createConfigRepository(storage: ConfigStorage) {
 
   async function load(): Promise<ConfigState> {
     const operation = ++generation;
+    pendingRead = operation;
     if (!disposed) for (const listener of invalidationListeners) listener();
     let state: ConfigState;
     try {
@@ -36,6 +38,7 @@ export function createConfigRepository(storage: ConfigStorage) {
     } catch {
       state = storageFailure();
     }
+    if (pendingRead === operation) pendingRead = undefined;
     publish(state, operation);
     return latestResult?.state ?? state;
   }
@@ -62,6 +65,9 @@ export function createConfigRepository(storage: ConfigStorage) {
   return {
     load,
     save,
+    getPendingReadRevision(): number | undefined {
+      return !disposed && pendingRead === generation ? pendingRead : undefined;
+    },
     getCurrent(): ConfigSnapshot | undefined {
       return !disposed && latestResult?.operation === generation
         ? Object.freeze({revision:generation,state:latestResult.state}) : undefined;
@@ -78,6 +84,7 @@ export function createConfigRepository(storage: ConfigStorage) {
       if (disposed) return;
       disposed = true;
       ++generation;
+      pendingRead = undefined;
       detach();
       listeners.clear();
       invalidationListeners.clear();

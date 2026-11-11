@@ -33,6 +33,7 @@ export function createControlService({ config, protections, targets, nativeTarge
   let state: ConfigState | undefined;
   let initialRead = false;
   let initialProtectionRead = false;
+  let checkVerificationRead: (() => void) | undefined;
   const nativeObservations = new Set<TargetObservation>();
   const protectionIntents = new Map<number, number>();
   function sameIdentity(a: ProtectedIdentity, b: ProtectedIdentity): boolean {
@@ -42,7 +43,7 @@ export function createControlService({ config, protections, targets, nativeTarge
     protectionFailure = !target || protectionFailure === 'pause-required' || protectionFailure && !sameIdentity(protectionFailure, target)
       ? 'pause-required' : Object.freeze({ tabId: target.tabId, incognito: target.incognito });
   }
-  const notify = () => { for (const listener of listeners) listener(); };
+  const notify = () => { checkVerificationRead?.(); for (const listener of listeners) listener(); };
   function invalidate(): void { ++generation; notify(); }
   const unsubscribeInvalidation = config.subscribeInvalidation(() => {
     // Only the first load we initiate establishes readiness without discarding startup navigation.
@@ -162,6 +163,18 @@ export function createControlService({ config, protections, targets, nativeTarge
       return reply(result);
     })();
   }
+  function waitForVerificationRead(expectedIntent: number): Promise<void> | undefined {
+    const pendingRevision = config.getPendingReadRevision();
+    if (pendingRevision === undefined || disposed || intent !== expectedIntent) return;
+    // The writer queue owns one verification at a time. A new Pause can skip this wait.
+    return new Promise(resolve => {
+      checkVerificationRead = () => {
+        if (!disposed && intent === expectedIntent && config.getPendingReadRevision() === pendingRevision) return;
+        checkVerificationRead = undefined;
+        resolve();
+      };
+    });
+  }
   function handle(raw: unknown): Promise<ControlReply> {
     const command = parseControlCommand(raw);
     if (!command) return Promise.resolve(reply('invalid'));
@@ -205,6 +218,10 @@ export function createControlService({ config, protections, targets, nativeTarge
           const written = await config.save(candidate);
           if (written.kind !== 'ready') { configFailed = true; return 'unavailable'; }
           await config.load();
+          // A storage event can start a newer read while verification is in progress.
+          // Give that read one chance to publish before checking the current snapshot.
+          const pendingRead = waitForVerificationRead(ticket);
+          if (pendingRead) await pendingRead;
           const verified = config.getCurrent();
           if (verified?.state.kind !== 'ready' || verified.state.config.enabled !== candidate.enabled || !sameRules(verified.state.config, candidate)) {
             configFailed = true;
