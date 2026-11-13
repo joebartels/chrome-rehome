@@ -17,13 +17,53 @@ if (process.platform === 'darwin') assert(nativeHelper, 'Compile and supply the 
 const os = process.platform === 'darwin'
   ? execFileSync('/usr/bin/sw_vers', ['-productVersion'], {encoding:'utf8'}).trim()
   : execFileSync('uname', ['-sr'], {encoding:'utf8'}).trim();
-const binary = execFileSync(chromePath, ['--version'], { encoding: 'utf8' }).trim();
-const floor = binary.includes(' 120.');
-const report = { binary, node: process.version, platform: process.platform, arch: process.arch, os, checks: [] };
+const report = { node: process.version, platform: process.platform, arch: process.arch, os, checks: [] };
+let origin;
 const record = (name, details) => {
   report.checks.push({ name, ...details });
   console.log('PASS', name);
 };
+
+function versionParts(version, label, maxPart = Number.MAX_SAFE_INTEGER) {
+  const parts = typeof version === 'string' ? version.split('.').map(Number) : [];
+  assert(parts.length <= 4 && parts.some(Boolean) && parts.join('.') === version &&
+    parts.every(part => Number.isSafeInteger(part) && part >= 0 && part <= maxPart),
+  `${label} must be a valid Chrome version, got ${JSON.stringify(version)}`);
+  return parts;
+}
+
+function compareVersions(left, right) {
+  for (let i = 0; i < Math.max(left.length, right.length); i++) {
+    const difference = (left[i] ?? 0) - (right[i] ?? 0);
+    if (difference) return difference;
+  }
+  return 0;
+}
+
+async function readPackageManifest(dist, role) {
+  const label = `${role} manifest.json`;
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(join(dist, 'manifest.json'), 'utf8'));
+  } catch (error) {
+    throw Error(`Cannot read ${label}: ${error.message}`);
+  }
+  assert(manifest && typeof manifest === 'object' && manifest.manifest_version === 3,
+    `${label} must declare Manifest V3`);
+  const { name, version, version_name, minimum_chrome_version } = manifest;
+  versionParts(version, `${label} version`, 65535);
+  assert(typeof name === 'string' && name.trim(), `${label} must declare a name`);
+  assert(version_name === undefined || typeof version_name === 'string', `${label} version_name must be a string`);
+  if (minimum_chrome_version !== undefined) versionParts(minimum_chrome_version, `${label} minimum_chrome_version`);
+  const workerPath = manifest.background?.service_worker;
+  const optionsPage = manifest.options_ui?.page;
+  const popupPage = manifest.action?.default_popup;
+  for (const [field, path] of [['background.service_worker', workerPath], ['options_ui.page', optionsPage], ['action.default_popup', popupPage]]) {
+    assert(typeof path === 'string' && path.length > 0, `${label} must declare ${field}`);
+  }
+  return { name, version, displayVersion: version_name || version, minimumChromeVersion: minimum_chrome_version,
+    workerPath, optionsPage, popupPage };
+}
 
 async function inventory(root, dir = '') {
   const result = {};
@@ -126,12 +166,12 @@ const flags = [
   ...(process.platform === 'linux' ? ['--no-sandbox', '--disable-dev-shm-usage'] : []),
 ];
 
-async function browser(name, dist, scenario) {
+async function browser(name, dist, packaged, expectedInventory, scenario) {
   const root = await mkdtemp(join(tmpdir(), 'chromerehome-release-'));
   const profile = join(root, 'profile');
   const extension = join(root, 'extension');
   await cp(resolve(dist), extension, { recursive: true });
-  assert.deepEqual(await inventory(extension), await inventory(resolve(dist)));
+  assert.deepEqual(await inventory(extension), expectedInventory);
   const child = spawn(chromePath, [...flags, '--user-data-dir=' + profile,
     '--disable-extensions-except=' + extension, '--load-extension=' + extension, 'about:blank'],
   { stdio: ['ignore', 'ignore', 'pipe'] });
@@ -152,16 +192,17 @@ async function browser(name, dist, scenario) {
     const build = await cdp.send('Browser.getVersion');
     const { processInfo } = await cdp.send('SystemInfo.getProcessInfo');
     assert.equal(processInfo.find(process => process.type === 'browser')?.id, child.pid);
-    assert(binary.includes(build.product.split('/').at(-1)));
+    assert.equal(build.product.split('/').at(-1), report.chromeVersion);
+    const workerPath = new URL('/' + packaged.workerPath, 'chrome-extension://extension').pathname;
     const worker = await until('packaged extension worker target', async () => {
       const { targetInfos } = await cdp.send('Target.getTargets');
       report.workerURLs = targetInfos.filter(target => target.type === 'service_worker').map(target => target.url);
       return targetInfos.find(t => t.type === 'service_worker' && t.url.startsWith('chrome-extension:') &&
-        new URL(t.url).pathname === '/background/index.js');
+        new URL(t.url).pathname === workerPath);
     });
     const extensionId = new URL(worker.url).host;
     const base = 'chrome-extension://' + extensionId;
-    await scenario({ cdp, extension, extensionId, base, pid: child.pid, build });
+    await scenario({ cdp, extension, extensionId, base, pid: child.pid, build, packaged });
   } catch (error) {
     (report.browserFailures ??= []).push({ name, exit, stderr });
     throw error;
@@ -185,14 +226,11 @@ const server = createServer((request, response) => {
   response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
   response.end(fixtureBody(request.url));
 });
-await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
-const origin = 'http://127.0.0.1:' + server.address().port;
-
 const manifest = page => page.eval(() => ({ id: chrome.runtime.id, version: chrome.runtime.getManifest().version }));
 const storage = page => page.eval(() => chrome.storage.local.get());
 const status = page => page.eval(() => document.querySelector('#status-message')?.textContent);
-const options = async ({ cdp, base }) => {
-  const page = await cdp.open(base + '/options/index.html');
+const options = async ({ cdp, base, packaged }) => {
+  const page = await cdp.open(base + '/' + packaged.optionsPage);
   await until('options render', () => page.eval(() => ({ url: location.href, status: document.querySelector('#status-message')?.textContent })), value => value.status?.startsWith('Automatic replacement'));
   return page;
 };
@@ -272,10 +310,10 @@ async function setActive(page, tab) {
   }, tab);
 }
 
-async function updateTrial(env) {
-  const { cdp, extension, extensionId, build } = env;
+async function updateTrial(env, candidatePackage) {
+  const { cdp, extension, extensionId, build, packaged: baselinePackage } = env;
   const previous = await options(env);
-  assert.deepEqual(await manifest(previous), { id:extensionId, version:'0.1.2' });
+  assert.deepEqual(await manifest(previous), { id:extensionId, version:baselinePackage.version });
   assert.deepEqual(await storage(previous), {});
   const settings = await cdp.open('chrome://extensions');
   await until('Extensions manager is ready', () => settings.eval(() => !!chrome.developerPrivate?.getProfileConfiguration));
@@ -286,12 +324,13 @@ async function updateTrial(env) {
   });
   await until('owned profile developer mode', () => settings.eval(async () =>
     (await chrome.developerPrivate.getProfileConfiguration()).inDeveloperMode));
-  const installed = async () => settings.eval(async () =>
+  const installed = name => settings.eval(async expectedName =>
     (await chrome.developerPrivate.getExtensionsInfo({ includeDisabled:true, includeTerminated:true }))
-      .filter(info => info.name === 'ChromeReHome')
-      .map(({id, version, state, disableReasons, manifestErrors}) => ({id, version, state, disableReasons, manifestErrors})));
-  const before = await until('Chrome extensions inventory for baseline', installed,
-    value => value.length === 1 && value[0].version === '0.1.2');
+      .filter(info => info.name === expectedName)
+      .map(({id, version, state, disableReasons, manifestErrors}) => ({id, version, state, disableReasons, manifestErrors})), name);
+  const before = await until('Chrome extensions inventory for baseline', () => installed(baselinePackage.name),
+    value => value.length === 1 && value[0].version === baselinePackage.displayVersion);
+  assert.equal(before[0].id, extensionId);
   assert.equal(before[0].state, 'ENABLED');
   await button(previous, 'Add grouping rule');
   await previous.eval(pattern => {
@@ -314,26 +353,26 @@ async function updateTrial(env) {
     failQuietly: true, populateErrorForUnpacked: true,
   }), extensionId);
   assert(!loadError, 'Chrome reported an unpacked reload error: ' + JSON.stringify(loadError));
-  const after = await until('Chrome extensions inventory for update', installed,
-    value => value.length === 1 && value[0].version === '0.1.3');
+  const after = await until('Chrome extensions inventory for update', () => installed(candidatePackage.name),
+    value => value.length === 1 && value[0].version === candidatePackage.displayVersion);
   assert.equal(after[0].id, before[0].id);
   assert.equal(after[0].state, before[0].state);
-  const updated = await options(env);
-  assert.deepEqual(await manifest(updated), { id:extensionId, version:'0.1.3' });
+  const updated = await options({ ...env, packaged: candidatePackage });
+  assert.deepEqual(await manifest(updated), { id:extensionId, version:candidatePackage.version });
   assert.deepEqual(await storage(updated), saved);
   assert.match(await status(updated), /disabled/);
-  record('0.1.2 to 0.1.3 unpacked reload preserves ID and saved settings', { build, before, after, saved });
+  record(`${baselinePackage.version} to ${candidatePackage.version} unpacked reload preserves ID and saved settings`, { build, before, after, saved });
 }
 
 async function freshTrial(env) {
-  const { cdp, extensionId, base, pid, build } = env;
+  const { cdp, extensionId, base, pid, build, packaged } = env;
   const observer = await options(env);
-  assert.deepEqual(await manifest(observer), { id:extensionId, version:'0.1.3' });
+  assert.deepEqual(await manifest(observer), { id:extensionId, version:packaged.version });
   assert.equal(await observer.eval(() => document.querySelector('#status-heading').textContent), 'ChromeReHome installed');
   assert.match(await status(observer), /disabled/);
   const first = await create(observer, 'paused-duplicate');
   const second = await create(observer, 'paused-duplicate');
-  const popup = await cdp.open(base + '/popup/index.html');
+  const popup = await cdp.open(base + '/' + packaged.popupPage);
   await setActive(observer, second);
   report.popupSetup = await popup.eval(async id => {
     const tab = await chrome.tabs.get(id);
@@ -453,7 +492,7 @@ async function freshTrial(env) {
   await pressControl(popup, 'pause');
   await until('popup pauses processing again', () => popupState(popup), value => value.heading === 'Paused');
 
-  if (!floor && process.platform === 'darwin') {
+  if (report.supportsNativeTabMenu) {
     const inactive = await create(observer, 'native-inactive', {active:false, windowId:second.windowId});
     await setActive(observer, second);
     const osBefore = await focusEvidence(pid, 'CRH release paused-duplicate');
@@ -467,17 +506,46 @@ async function freshTrial(env) {
     await selectedProtection(observer, []);
     await until('native unprotected badge', () => badge(observer, inactive.id), value => value.text === '');
     assert.deepEqual((await state(observer)).tabs, selectionBefore);
-    record('actual stable native tab-strip menu toggles only its inactive tab', { osBefore, menu, secondMenu, nativeProtection, nativeBadge, inactiveTab:inactive.id, activeTab:second.id });
+    record('actual native tab-strip menu toggles only its inactive tab', { osBefore, menu, secondMenu, nativeProtection, nativeBadge, inactiveTab:inactive.id, activeTab:second.id });
   }
 
 }
 
 try {
+  const [baselinePackage, candidatePackage] = await Promise.all([
+    readPackageManifest(oldDist, 'baseline'), readPackageManifest(newDist, 'candidate'),
+  ]);
+  report.packages = { baseline: baselinePackage, candidate: candidatePackage };
+  assert(compareVersions(versionParts(candidatePackage.version), versionParts(baselinePackage.version)) > 0,
+    `Candidate version ${candidatePackage.version} must be newer than baseline version ${baselinePackage.version}`);
+
   report.previousInventory = await inventory(resolve(oldDist));
   report.releaseInventory = await inventory(resolve(newDist));
+  for (const [role, packaged, files] of [
+    ['baseline', baselinePackage, report.previousInventory], ['candidate', candidatePackage, report.releaseInventory],
+  ]) {
+    for (const path of [packaged.workerPath, packaged.optionsPage, packaged.popupPage]) {
+      assert(Object.hasOwn(files, path), `${role} manifest.json entry point is missing from the package: ${path}`);
+    }
+  }
+  report.binary = execFileSync(chromePath, ['--version'], { encoding: 'utf8' }).trim();
+  report.chromeVersion = report.binary.match(/\b\d+\.\d+\.\d+\.\d+\b/u)?.[0];
+  const chromeParts = versionParts(report.chromeVersion, 'Chrome --version output');
+  for (const [role, { minimumChromeVersion }] of Object.entries(report.packages)) {
+    assert(minimumChromeVersion === undefined || compareVersions(chromeParts, versionParts(minimumChromeVersion)) >= 0,
+      `Chrome ${report.chromeVersion} is below ${role} minimum_chrome_version ${minimumChromeVersion}`);
+  }
+  // Chrome 150 introduced the tab context. The native menu driver is macOS-only.
+  report.supportsNativeTabMenu = process.platform === 'darwin' && chromeParts[0] >= 150;
+
+  await new Promise((resolve, reject) => { server.once('error', reject); server.listen(0, '127.0.0.1', resolve); });
+  origin = 'http://127.0.0.1:' + server.address().port;
   const failures = [];
-  for (const [name, dist, trial] of [['fresh install', newDist, freshTrial], ['existing profile update', oldDist, updateTrial]]) {
-    try { await browser(name, dist, trial); }
+  for (const [name, dist, packaged, files, trial] of [
+    ['fresh install', newDist, candidatePackage, report.releaseInventory, freshTrial],
+    ['existing profile update', oldDist, baselinePackage, report.previousInventory, env => updateTrial(env, candidatePackage)],
+  ]) {
+    try { await browser(name, dist, packaged, files, trial); }
     catch (error) {
       failures.push({ scenario:name, error:String(error.stack ?? error) });
       console.error(error);
@@ -490,7 +558,7 @@ try {
   console.error(report.error);
   process.exitCode = 1;
 } finally {
-  await new Promise(resolve => server.close(resolve));
+  if (server.listening) await new Promise(resolve => server.close(resolve));
   await mkdir(resolve(output, '..'), { recursive:true });
   await writeFile(output, JSON.stringify(report, null, 2) + '\n');
 }

@@ -25,7 +25,7 @@ The [getting started guide](docs/users/getting-started.md) walks through setup a
 - [Features and protections](docs/users/features.md)
 - [Writing rules](docs/users/rules.md)
 - [Troubleshooting](docs/support/troubleshooting.md) and [privacy](docs/support/privacy.md)
-- [Development and testing](docs/engineering/development.md)
+- [Contributing](CONTRIBUTING.md) and [security reporting](SECURITY.md)
 - [All documentation](docs/README.md)
 
-Use this repository’s **Issues** tab for bugs, ideas, and completed work. Please remove private URLs and personal details from reports.
+ChromeReHome is released under the [MIT License](LICENSE).

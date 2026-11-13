@@ -20,12 +20,14 @@ Link to the file that owns a detail instead of copying its contents. Prefer file
 
 Ask whether a user action, safety promise, design boundary, or supported workflow changed. Update the relevant guide if it did. A renamed private helper or a new test should rarely need a prose edit.
 
-Check local links after moving files. Keep the README short and use the [index](README.md) to help readers find details. Avoid repeating the same explanation across guides; summarize it briefly and link to its home.
+Run `npm run check:docs` to check local Markdown file and heading links. The check skips external URLs. Keep the README short and use the [index](README.md) to help readers find details. Summarize information briefly and link to its home.
 
 Separate measurements from advice. A successful run describes the tested build and environment; it does not certify every later version. Preserve failures and verification limits when recording evidence. The [archive](archive/README.md) is historical, and its old instructions must not override current guidance.
 
 ## Write for a public repository
 
-Use plain language and neutral examples such as `example.com`. Never paste a home directory, private browsing URL, personal account name, machine identifier, or local assistant configuration into a document or issue. Check screenshots, traces, logs, generated output, and Git changes before sharing them.
+Use plain language and neutral examples such as `example.com`. Names and usernames may appear where relevant. Remove credentials, tokens, private URLs, and private browsing or session data. Check screenshots, traces, logs, generated output, and Git changes before sharing them.
 
-Machine-dependent inputs should be supplied by the person running the command. Temporary files should use the operating system or test runner’s temporary directory. Keep secrets and personal settings outside the repository.
+Use portable paths and pass machine-dependent inputs explicitly. Temporary files should use the operating system or test runner’s temporary directory. Keep local settings outside the repository.
+
+With [Gitleaks](https://github.com/gitleaks/gitleaks) installed, run `npm run check:secrets` to scan the full Git history and staged changes. Stage the files you intend to commit first. The scanner redacts matches in its output.

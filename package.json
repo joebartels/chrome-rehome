@@ -1,6 +1,6 @@
 {
   "name": "chromerehome",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,6 +11,8 @@
     "test": "vitest run",
     "build": "node scripts/build.mjs",
     "check:package": "node scripts/check-package.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "check:secrets": "node scripts/check-secrets.mjs",
     "test:browser": "playwright test",
     "check:browser-results": "node scripts/check-browser-results.mjs"
   },
@@ -19,7 +21,10 @@
     "@types/chrome": "0.3.6",
     "@types/node": "24.19.2",
     "esbuild": "0.28.2",
+    "github-slugger": "2.0.0",
+    "markdown-it": "15.0.3",
     "typescript": "7.0.2",
     "vitest": "5.0.5"
-  }
+  },
+  "license": "MIT"
 }

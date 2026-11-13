@@ -21,6 +21,7 @@ Start with the guide that fits what you want to do.
 
 ## Maintain the project
 
+- [Contributing](../CONTRIBUTING.md) and [security reporting](../SECURITY.md)
 - [Direction and roadmap](roadmap.md): how to judge proposed work.
 - [Keep docs useful](maintaining-docs.md): what to write, link, and update.
 - [Agent instructions](../AGENTS.md): repository rules for coding assistants.

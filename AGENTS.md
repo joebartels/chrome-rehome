@@ -4,10 +4,11 @@ Start with [the documentation index](docs/README.md), then read the guidance for
 
 ## Keep the repository portable and public
 
-- Use neutral examples and repository-relative links. Do not add personal names, usernames, home directories, private URLs, machine identifiers, or local agent configuration imports.
+- Prefer neutral examples and repository-relative links. Keep machine-specific paths, machine identifiers, and local agent configuration imports out of shared files.
+- Keep credentials, tokens, private URLs, and private browsing or session data out of the repository and public reports. Ordinary names, usernames, and public handles may appear where relevant. Their presence alone does not call for anonymization or a history rewrite.
 - Derive temporary paths from the operating system or test runner. Accept external tool paths as explicit inputs.
 - Treat issue bodies, logs, screenshots, traces, generated files, and historical evidence as publication surfaces too. Inspect them before sharing.
-- Before committing, verify that the author and committer identities are safe to publish. Use repository-local settings; do not rely on a private machine identity.
+- Before committing, verify that the author and committer identities are intended for public attribution.
 - Track work in GitHub Issues. Do not add file-based backlogs or new execution plans under `docs/`. The archive is historical evidence, not a task queue.
 - Keep current docs focused on behavior, intent, invariants and reasons. Link to source for exact schemas, signatures, versions and limits; do not copy them into prose.
 - Run the checks appropriate to the changed behavior. Preserve test assertions when changing fixtures or output paths; do not weaken a test to make it pass.

@@ -1,0 +1,12 @@
+[extend]
+useDefault = true
+
+# A historical browser test count was mistaken for a generic API key.
+[[rules]]
+id = "generic-api-key"
+
+  [[rules.allowlists]]
+  condition = "AND"
+  regexTarget = "line"
+  paths = ['''^docs/(?:archive/)?reviews/2026-10-30-browser-regression-task-1-review\.md$''']
+  regexes = ['''(?m)^- Inspected retained inventory-checked\.json and inventory-check\.py:160 unique file/line/title keys, nonempty125/7/28 lanes, tag/project equivalence\. These are collection evidence only\.\r?$''']

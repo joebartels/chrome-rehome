@@ -5,9 +5,13 @@ import { fixture, check } from '../package-fixture';
 
 describe('package policy', () => {
   it('accepts a complete local-only package', () => { expect(check(fixture().root).status).toBe(0); });
-  it('rejects a missing entry', () => {
-    const f = fixture(); rmSync(join(f.root, 'dist/background/index.js'));
+  it.each(['dist/background/index.js', 'dist/LICENSE'])('rejects missing file %s', (name) => {
+    const f = fixture(); rmSync(join(f.root, name));
     const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('files');
+  });
+  it('rejects a license that differs from the repository license', () => {
+    const f = fixture(); f.write('dist/LICENSE', 'Altered license notice\n');
+    const result = check(f.root); expect(result.status).toBe(1); expect(result.stderr).toContain('license');
   });
   it.each(['dist/test.js', 'dist/options/index.js.map'])('rejects unexpected file %s', (name) => {
     const f = fixture(); f.write(name, '{}');

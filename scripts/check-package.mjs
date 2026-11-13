@@ -101,10 +101,13 @@ function checkGraph(root) {
   }
 }
 export function checkPackage(root) {
-  const expected = ['background/index.js', 'manifest.json', 'options/index.html', 'options/index.js', 'options/styles.css', 'popup/index.html', 'popup/index.js', 'popup/styles.css'];
+  const expected = ['LICENSE', 'background/index.js', 'manifest.json', 'options/index.html', 'options/index.js', 'options/styles.css', 'popup/index.html', 'popup/index.js', 'popup/styles.css'];
   let actual;
   try { actual = files(resolve(root, 'dist')); } catch (error) { fail('files', error.message); }
-  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('files', `expected exactly eight distribution files; found ${actual.join(', ')}`);
+  if (JSON.stringify(actual) !== JSON.stringify(expected)) fail('files', `expected ${expected.join(', ')}; found ${actual.join(', ')}`);
+  if (!readFileSync(resolve(root, 'dist/LICENSE')).equals(readFileSync(resolve(root, 'LICENSE')))) {
+    fail('license', 'dist/LICENSE must match the repository LICENSE');
+  }
   checkManifest(JSON.parse(read(root, 'dist/manifest.json')));
   checkCode(root);
   checkSources(root);

@@ -15,6 +15,7 @@ const result = await build({
   target: 'chrome120', sourcemap: false, metafile: true, legalComments: 'none', charset: 'utf8',
 });
 for (const [source, destination] of [
+  ['LICENSE', 'LICENSE'],
   ['src/popup/index.html', 'popup/index.html'],
   ['src/popup/styles.css', 'popup/styles.css'],
   ['manifest.json', 'manifest.json'],
