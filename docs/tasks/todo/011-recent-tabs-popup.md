@@ -1,23 +1,13 @@
 # 011: Recent tabs across windows
 
-Status: TODO — requested 2026-10-28; record only, not part of Task008 implementation.
+Status: Implemented in 0.1.4.
 
-Depends on: 008 toolbar popup; existing cross-window activation/focus primitives.
+Clicking ChromeReHome shows up to eight currently open tabs recently created or selected in eligible normal browser windows. The popup includes web, local file and new or blank tabs. Background opens and browser selection during re-homing count. Moving a tab without selecting it preserves its rank. Window focus alone does not rank a tab. The feature works while automatic processing is paused.
 
-## Outcome
+The worker records up to 32 IDs per normal or incognito context in session storage. Entries survive worker suspension, and extension or browser restart clears them. The list is populated by observed browser events. Browser settings and extension pages are hidden when the popup reads live labels. Their recent IDs can occupy slots in the bounded list. Tab URLs, titles, and labels are read live and are never persisted by this feature.
 
-Clicking ChromeReHome shows the most recent currently open tabs across all eligible Chrome windows, helping the user find a tab after re-homing changes its window or position.
+Selecting a row activates the same tab and brings its current window forward. It reveals a collapsed group when needed and preserves the tab’s navigation history. The popup validates live tab and window context before reading labels and again before switching. It refreshes after relevant changes and reports an unavailable tab if the switch can no longer proceed. Incognito rows require the existing Chrome incognito permission and are isolated from the normal popup.
 
-## Proposed scope to settle when implementing
+## Verification
 
-- Show the most recent `n` tabs; decide a small default and whether `n` is configurable.
-- The request mentions both recently opened and last active tabs. Decide whether the default is recent activity (open/activation), with a separate recently opened ordering, rather than silently equating those concepts.
-- Selecting an entry activates the existing tab and focuses its window, revealing a collapsed group as needed. Preserve identity/history; do not navigate, reload, duplicate or re-home it merely because it was selected.
-- Use current live titles, URL labels and group/window context so entries are recognizable. Handle tabs closed or moved while the popup is open.
-- Keep normal/incognito contexts separate and respect extension incognito access. Do not disclose private entries to an unrelated browsing context.
-- Prefer bounded session-only recency IDs/timestamps and live metadata. Decide worker restart/browser restart behavior; avoid persisting browsing URLs/titles by default or adding a history permission without a demonstrated need.
-- Extend the Task008 popup as a separate recent-tabs section/model. Keep recency tracking independent of matching, placement, pause/protection authority and the replacement journal.
-
-## Regression coverage
-
-Cross-window focus, background tab creation, manual activation, re-homing, closed entries, duplicate titles, collapsed groups, worker suspension, bounded eviction and normal/incognito isolation. Decide whether extension-induced activation counts as recent activity and test it explicitly.
+The browser test failed on 0.1.3 because no recent IDs were saved. The final 0.1.4 package passed typecheck, 1,420 unit and integration tests, and the strict package check. The affected Playwright run passed 38 checks in disposable profiles using Chromium 156.0.8078.4. This included the real action popup for same-window and collapsed cross-window selection, actual re-homing and ranking, separation of normal and incognito entries, and rehydration after a forced worker stop. The browser run had zero skips and retries. Independent review approved the stale-selection and label fixes. The feature uses APIs available at the declared Chrome 120 floor. The Task 011 browser run used Chromium 156.

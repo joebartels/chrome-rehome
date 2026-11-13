@@ -347,6 +347,12 @@ for (const destination of ['rule','manual','ungrouped'] as const) {
           const state=await attention();return {focused:state.windows.filter(w=>w.focused).map(w=>w.id),destinationActive:state.tabs.filter(t=>t.windowId===setup.remote&&t.active).map(t=>t.id)};
         }).toEqual({focused:[background?setup.sourceWindow:setup.remote],destinationActive:[background?setup.spare:incomingId]});
         const after=await attention();
+        if (destination === 'rule' && !background) {
+          await expect.poll(() => options.evaluate(async () =>
+            ((await chrome.storage.session.get('chromeReHomeRecentTabs')).chromeReHomeRecentTabs as
+              { normal: number[] } | undefined)?.normal[0],
+          )).toBe(incomingId);
+        }
         if(background){expect(after.tabs.find(t=>t.id===sourceId)?.active).toBe(true);expect(after.tabs.filter(t=>t.active).map(t=>t.id).sort()).toEqual(before.tabs.filter(t=>t.active).map(t=>t.id).sort());}
         if(setup.groupId!==-1)expect(after.groups.find(g=>g.id===setup.groupId)?.collapsed).toBe(background);
         expect(after.tabs.find(t=>t.id===incomingId)?.url).toBe(origin+'/target');

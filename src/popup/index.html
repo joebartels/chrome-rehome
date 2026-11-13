@@ -9,6 +9,12 @@
   <body>
     <main>
       <h1>ChromeReHome</h1>
+      <section aria-labelledby="recent-heading">
+        <h2 id="recent-heading" tabindex="-1">Recent tabs</h2>
+        <p id="recent-status" role="status">Loading recent tabs…</p>
+        <ul id="recent-list" class="recent-list" role="list"></ul>
+        <button id="recent-retry" type="button" hidden>Retry recent tabs</button>
+      </section>
       <section aria-labelledby="status-heading">
         <h2 id="status-heading" aria-live="polite" aria-atomic="true">Checking processing status</h2>
         <p id="status-description">Readiness is being checked.</p>

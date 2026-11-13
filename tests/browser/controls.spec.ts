@@ -238,12 +238,25 @@ test('actual action popup uses the actual selected web tab and owned-profile inc
   await reconnected.evaluate(id=>chrome.action.openPopup({windowId:id}),privateWindow!.id!);
   const privateAction=await attachActionPopup(context,`chrome-extension://${extensionId}/popup/index.html`);
   await expect.poll(privateAction.heading).toBe('Active'); await expect.poll(privateAction.enabled).toBe(true); await expect.poll(privateAction.checked).toBe(false);
+  const recentIds = 'Array.from(document.querySelectorAll("[data-recent-tab-id]"), button => Number(button.dataset.recentTabId))';
+  await expect.poll(() => privateAction.evaluate<number[]>(recentIds)).toContain(privateTab.id!);
+  expect(await privateAction.evaluate<number[]>(recentIds)).not.toContain(tabId);
   await privateAction.click('#protect'); await expect.poll(privateAction.checked).toBe(true); await expect.poll(privateAction.heading).toBe('Active');
   const protectedTabs=await reconnected.evaluate(async()=> ((await chrome.storage.session.get('chromeReHomeProtections')).chromeReHomeProtections as ProtectionValue).tabs);
   expect(protectedTabs).toContainEqual({tabId,incognito:false}); expect(protectedTabs).toContainEqual({tabId:privateTab.id!,incognito:true});
   await privateAction.click('#pause'); await expect.poll(privateAction.heading).toBe('Paused');
   await privateAction.screenshot(info,'native-action-incognito');
   await privateAction.close();
+  await reconnected.evaluate(async id => {
+    const tab = await chrome.tabs.update(id, { active: true });
+    await chrome.windows.update(tab!.windowId, { focused: true });
+    await chrome.action.openPopup({ windowId: tab!.windowId });
+  }, tabId);
+  const normalWithPrivateOpen = await attachActionPopup(context, `chrome-extension://${extensionId}/popup/index.html`);
+  try {
+    await expect.poll(() => normalWithPrivateOpen.evaluate<number[]>(recentIds)).toContain(tabId);
+    expect(await normalWithPrivateOpen.evaluate<number[]>(recentIds)).not.toContain(privateTab.id!);
+  } finally { await normalWithPrivateOpen.close(); }
   await info.attach('native-popup-contexts',{body:JSON.stringify({version:context.browser()!.version(),allowedIncognito:true,normalTabId:tabId,privateTabId:privateTab.id,protectedTabs}),contentType:'application/json'});
 },true));
 

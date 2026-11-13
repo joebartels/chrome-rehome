@@ -19,3 +19,13 @@ input { accent-color: var(--accent); flex-shrink: 0; }
 #message { min-height: 1.45em; }
 [data-severity="error"] { color: var(--error); }
 @media (prefers-color-scheme: dark) { :root { --background: #191b20; --surface: #242831; --text: #e8eaf0; --muted: #b9c2d1; --border: #646e7f; --accent: #9abfff; --error: #ffb4a8; } }
+
+#recent-status:empty { margin: 0; }
+.recent-list { display: grid; gap: .35rem; list-style: none; margin: -.25rem; padding: .25rem; max-height: 11.8rem; overflow-y: auto; }
+.recent-list:empty { display: none; }
+.recent-list li { min-width: 0; }
+.recent-list button { display: block; width: 100%; padding: .35rem .55rem; text-align: start; }
+.recent-list button:focus-visible { outline-offset: -2px; }
+.recent-title, .recent-details { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-title { font-weight: 600; }
+.recent-details { color: var(--muted); font-size: .85rem; }

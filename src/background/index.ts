@@ -1,3 +1,4 @@
+import { registerRecentTabTracker } from '../browser/recent-tab-tracker';
 import { registerProtectionIndicator } from '../browser/protection-indicator';
 import { registerTabContextMenu } from '../browser/tab-context-menu';
 import { createStatusNotifier } from '../browser/control-status-hints';
@@ -50,4 +51,5 @@ tabMenu = registerTabContextMenu(chrome, controls, reportFailure);
 protectionIndicator = registerProtectionIndicator(chrome, controls, reportFailure);
 registerControlMessages(chrome.runtime, controls);
 registerEvents(chrome, coordinator, reportFailure);
+registerRecentTabTracker(chrome, reportFailure);
 void coordinator.initialize().catch(() => { reportFailure(); }).finally(notifyStatus);
