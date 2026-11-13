@@ -1,5 +1,16 @@
 # Agent instructions
 
+Start with [the documentation index](docs/README.md), then read the guidance for the area you are changing. [Engineering principles](docs/engineering/principles.md) describe the safety boundaries; [documentation maintenance](docs/maintaining-docs.md) explains what belongs in prose and what belongs in source.
+
+## Keep the repository portable and public
+
+- Use neutral examples and repository-relative links. Do not add personal names, usernames, home directories, private URLs, machine identifiers, or local agent configuration imports.
+- Derive temporary paths from the operating system or test runner. Accept external tool paths as explicit inputs.
+- Treat issue bodies, logs, screenshots, traces, generated files, and historical evidence as publication surfaces too. Inspect them before sharing.
+- Before committing, verify that the author and committer identities are safe to publish. Use repository-local settings; do not rely on a private machine identity.
+- Track work in GitHub Issues. Do not add file-based backlogs or new execution plans under `docs/`. The archive is historical evidence, not a task queue.
+- Keep current docs focused on behavior, intent, invariants and reasons. Link to source for exact schemas, signatures, versions and limits; do not copy them into prose.
+- Run the checks appropriate to the changed behavior. Preserve test assertions when changing fixtures or output paths; do not weaken a test to make it pass.
 
 ## Version every delivered change
 

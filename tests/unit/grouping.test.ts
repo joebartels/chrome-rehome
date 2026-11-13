@@ -16,11 +16,11 @@ describe('grouping rules', () => {
 
   it('returns the first matching configured rule without sorting or deduplication', () => {
     const compiled = ready([
-      { pattern: 'https://github.com/*', group: 'First' },
-      { pattern: 'https://github.com/example-org/sample/*', group: 'BarTab' },
-      { pattern: 'https://github.com/*', group: 'Duplicate' },
+      { pattern: 'https://example.com/*', group: 'First' },
+      { pattern: 'https://example.com/projects/sample/*', group: 'BarTab' },
+      { pattern: 'https://example.com/*', group: 'Duplicate' },
     ]);
-    expect(compiled.match('https://github.com/example-org/sample/issues')).toBe(compiled.rules[0]);
+    expect(compiled.match('https://example.com/projects/sample/issues')).toBe(compiled.rules[0]);
     expect(compiled.rules.map((rule) => rule.group)).toEqual(['First', 'BarTab', 'Duplicate']);
   });
 

@@ -1,9 +1,9 @@
 // Hand-checked contract examples shared with the real Chromium matcher smoke test.
 export const groupingCases: readonly [pattern: string, url: string, matches: boolean][] = [
-  ['https://github.com/example-org/sample/*', 'https://github.com/example-org/sample/issues?x=1#y', true],
-  ['https://github.com/example-org/sample/*', 'https://github.com/example-org/sample', false],
-  ['https://github.com/example-org/sample/*', 'https://github.com/example-org/sample/', true],
-  ['https://github.com/example-org/sample/*', 'https://github.com/example-org/sample/a/.hidden/b', true],
+  ['https://example.com/projects/sample/*', 'https://example.com/projects/sample/issues?x=1#y', true],
+  ['https://example.com/projects/sample/*', 'https://example.com/projects/sample', false],
+  ['https://example.com/projects/sample/*', 'https://example.com/projects/sample/', true],
+  ['https://example.com/projects/sample/*', 'https://example.com/projects/sample/a/.hidden/b', true],
   ['https://example.com/:id', 'https://example.com/:id', true],
   ['https://example.com/:id', 'https://example.com/123', false],
   ['https://example.com/(a|b)', 'https://example.com/(a|b)', true],

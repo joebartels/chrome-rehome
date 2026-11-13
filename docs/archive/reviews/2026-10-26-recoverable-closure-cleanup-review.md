@@ -1,0 +1,26 @@
+
+> Historical record. This describes a past build, not current behavior or instructions. Personal paths and examples have been sanitized; external artifacts are not bundled. See the [archive guide](../README.md).
+
+- **Expand the new recovery and execution safety tests into readable statements.** — **ADDRESSED.** The browser fixture setup, worker stop/restart observations, held gates, phase lists and assertions now occupy conventional multiline statements (`tests/browser/replacement-recovery.spec.ts:40`, `:132`, `:175`, `:283`, `:303`, `:383`). Execution revalidation, deferred cancellation, queue ownership, late-effect quarantine and failure assertions are likewise expanded (`tests/unit/replacement-execution.test.ts:109`, `:165`, `:278`, `:308`, `:389`). The native-versus-simulated comments and evidence labels remain present. No helper extraction or fixture redesign was introduced. The saved esbuild proof reports strict equality for both complete test files against `historical-revision`; a read-only transform of each current file independently reproduces its saved identical-output hash and byte count. This supports preservation of test names, phase literals, predicates, await order, evidence payloads and expectations.
+- **Remove the discarded participant-presence calculation in recovery.** — **ADDRESSED.** `src/background/recovery.ts:17`–20 now explains snapshot success as the read-only reconciliation gate, awaits `port.read()`, then awaits `journal.clear()`, with no unused snapshot binding, set or presence map. Invalid/pending records still return before either operation (`:15`); readiness is assigned only afterward (`:22`), remains false on read/clear rejection through the unchanged catch (`:23`), and is additionally conditioned on journal blocking (`:27`). No replay, presence-dependent admission, diagnostic, persistence, retry or result API was added. The canonical startup table (`docs/archive/superpowers/specs/2026-10-26-recoverable-closure-design.md:119`), task table (`GitHub issue #6 (historical task 006)`) and architecture paragraph (`docs/archive/architecture.md:74`) consistently describe the awaited gate and explicitly reject participant presence as replay authority.
+
+## New Breakage in the Fix Diff
+
+None.
+
+## Out-of-Scope Observations
+
+None. Controller-owned completion documents, checkboxes and final-gate bookkeeping remain outside this review; the prior whole-feature report's manual/native-evidence boundaries are unchanged.
+
+## Checks Examined or Run
+
+- Read the two Minor findings and their actionable scopes in `final-review.md`, the Task1 brief, canonical design recovery requirements, `final-fix-report.md`, and the supplied six-file `review-historical-revision..historical-revision.diff`. Initial combined output truncated; the omitted patch portions were recovered in bounded file sections. No git diff was recomputed and no broad unchanged-code review was performed. Fix base is `historical-revision`; packaged head is `historical-revision`.
+- Examined `final-fix-format-proof.mjs`, `.json` and `.log`. The script uses the actual base source and current files with identical esbuild 0.28.2 options, compares emitted strings using strict equality, and records matching SHA-256 values. `final-fix-comments.log` reports complete line comments preserved for both files.
+- Ran only a read-only current-file transform/hash comparison against the saved proof, exit 0. Browser test output remains 12922 bytes with SHA-256 `ddf8e3ef93ee4ffcdea0896fcbb9f3eb1899077ed6db518ef93c6c669c00650e`; unit test output remains 15161 bytes with SHA-256 `872bb78522460ed0a26e4dc5e0c33d802d89ebd2e6eb2852749362a572562b2a`. Both exactly match the saved before/after proof. The proof script was not rerun, so its artifacts were not rewritten.
+- Examined the retained logs: `final-fix-vitest.log` shows 26 files and 855 tests passed; `final-fix-browser.log` names the amended recovery scenarios and shows 66 passed. Build and package logs show success; the typecheck log is empty, consistent with the report's exit-0 claim. These are retained implementer runs, not reviewer suite reruns. The full run covers unchanged `tests/integration/recovery.test.ts:16`–24 assertions for settled abandonment, pending quarantine and journal-read/snapshot/clear rejection without repair; those assertions agree with the amended recovery ordering.
+- Examined `final-fix-evidence-summary.json`: 34 stopped/fresh-realm restart records, 25 phase records declining an outstanding-native-call claim, seven preserved seeded records, and Chromium156.0.8078.4. This adds no claim of a new 94-case full browser run or proof of termination inside an outstanding native API call.
+- No routine suite or behavioral experiment was needed: the patch and retained exact-code evidence left no concrete unanswered doubt. Source, index, HEAD and branch state were not mutated. Only this requested report was written.
+
+## Verdict
+
+**Fix round: All findings addressed, no new Critical/Important breakage.** Both Minor findings are closed; no cleanup finding remains open.
